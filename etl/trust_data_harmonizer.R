@@ -1,57 +1,72 @@
 library(tidyverse)
 library(readxl)
 library(lubridate)
+library(checkmate) # For robust assertions
 
 #' Trust Data Harmonizer
 #' 
-#' This script standardizes disparate prescribing data formats from different NHS Trusts
-#' (e.g., Leeds, Cambridge) into a Common Data Model (CDM) for the Gut Reaction Hub.
+#' Enterprise-grade ETL pipeline for standardizing disparate NHS Trust data.
+#' Implements strict schema validation and error handling.
 #' 
-#' @param file_path Path to the raw Excel file from the Trust.
-#' @param trust_id Unique identifier for the Trust (e.g., "CAMBS", "LEEDS").
-#' @return A cleaned, harmonized dataframe ready for the IBD Registry.
+#' @param file_path Path to the raw Excel file.
+#' @param trust_id Unique identifier for the Trust.
+#' @return A cleaned, harmonized dataframe.
 
 process_trust_prescribing <- function(file_path, trust_id) {
   
-  message(paste("Starting ingestion for Trust:", trust_id, "File:", file_path))
+  # --- 1. Input Validation ---
+  assert_file_exists(file_path)
+  assert_choice(trust_id, c("CAMBS", "LEEDS", "MANCH", "LPOOL"))
   
-  # 1. Load raw data (handling the messy Excel formats typical of NHS exports)
-  tryCatch({
-    raw_data <- read_excel(file_path)
+  message(sprintf("[%s] Starting ingestion for Trust: %s", Sys.time(), trust_id))
+  
+  # --- 2. Robust Ingestion ---
+  raw_data <- tryCatch({
+    read_excel(file_path)
   }, error = function(e) {
-    stop(paste("Failed to read file:", file_path, "\nError:", e$message))
+    stop(sprintf("CRITICAL: Failed to read file %s. Error: %s", file_path, e$message))
   })
   
-  # 2. Standardize Columns (Schema Mapping)
-  # We map local column names to our internal CDM standard
+  # --- 3. Schema Normalization ---
+  # Map local column names to CDM standard
   clean_data <- raw_data %>%
-    rename_with(~ tolower(gsub(" ", "_", .x))) %>%
+    rename_with(~ tolower(gsub(" ", "_", .x)))
+    
+  # --- 4. Business Logic Transformation ---
+  clean_data <- clean_data %>%
     mutate(
       trust_id = trust_id,
       
-      # Drug Name Normalization (Mapping brand names to generics)
+      # Drug Concept Mapping (Regex -> Standard Concept)
       drug_name_std = case_when(
-        str_detect(drug, regex("inflix", ignore_case = TRUE)) ~ "Infliximab",
-        str_detect(drug, regex("adali", ignore_case = TRUE)) ~ "Adalimumab",
-        str_detect(drug, regex("vedo", ignore_case = TRUE)) ~ "Vedolizumab",
-        str_detect(drug, regex("uste", ignore_case = TRUE)) ~ "Ustekinumab",
+        str_detect(drug, regex("inflix|remicade", ignore_case = TRUE)) ~ "Infliximab",
+        str_detect(drug, regex("adali|humira", ignore_case = TRUE)) ~ "Adalimumab",
+        str_detect(drug, regex("vedo|entyvio", ignore_case = TRUE)) ~ "Vedolizumab",
+        str_detect(drug, regex("uste|stelara", ignore_case = TRUE)) ~ "Ustekinumab",
         TRUE ~ "Other"
       ),
       
-      # Robust Date Parsing
-      # Handling the variety of date formats (DD/MM/YYYY, YYYY-MM-DD, etc.)
+      # Date Parsing with Fallback
       start_date = parse_date_time(rx_date, orders = c("dmy", "ymd", "mdy", "Ymd HMS")),
       
       # Data Quality Flags
-      is_biologic = drug_name_std != "Other"
-    ) %>%
-    # Filter out invalid records or non-target drugs
-    filter(!is.na(start_date)) %>%
-    filter(is_biologic == TRUE) %>%
+      dq_valid_date = !is.na(start_date),
+      dq_target_drug = drug_name_std != "Other"
+    )
+  
+  # --- 5. Quality Control Filter ---
+  final_cohort <- clean_data %>%
+    filter(dq_valid_date & dq_target_drug) %>%
     select(trust_id, patient_id, drug_name_std, start_date, dose, frequency)
   
-  message(paste("Ingestion complete. Processed", nrow(clean_data), "records."))
-  return(clean_data)
+  # --- 6. Audit Logging ---
+  dropped_count <- nrow(clean_data) - nrow(final_cohort)
+  if (dropped_count > 0) {
+    warning(sprintf("QC Alert: Dropped %d records due to invalid dates or non-target drugs.", dropped_count))
+  }
+  
+  message(sprintf("[%s] Ingestion complete. Valid records: %d", Sys.time(), nrow(final_cohort)))
+  return(final_cohort)
 }
 
 # --- Execution Example (Commented out for library usage) ---

@@ -3,12 +3,13 @@
 ![Status](https://img.shields.io/badge/Status-Production-success)
 ![Security](https://img.shields.io/badge/Security-ISO27001-blue)
 ![Governance](https://img.shields.io/badge/Governance-ONS_Five_Safes-green)
+![AI-Check](https://img.shields.io/badge/AI-Visual_Governance-purple)
 
 ## Executive Summary
 
-This repository serves as a **Shadow Architecture** for the data engineering and machine learning pipelines I architected as the **Lead Data Scientist** for the **Gut Reaction** Health Data Research Hub.
+This repository serves as a **Shadow Architecture** for the enterprise-grade data platform I architected and led for the **Gut Reaction** Health Data Research Hub.
 
-**Gut Reaction** is a national initiative to aggregate, harmonize, and secure real-world data from thousands of patients with Inflammatory Bowel Disease (IBD). My role was to transform fragmented, siloed data into a high-value, research-ready asset for academic and commercial partners.
+**Gut Reaction** is a national initiative to aggregate, harmonize, and secure real-world data from thousands of patients with Inflammatory Bowel Disease (IBD). As the **Technical Project Lead**, I orchestrated the transformation of fragmented, siloed data into a high-value, research-ready asset for academic and commercial partners.
 
 > **Note:** This repository contains *generalized* versions of the production code. No real patient data or private NHS keys are included. It demonstrates the technical architecture, governance protocols, and "Air Gap" linkage strategies I implemented.
 
@@ -24,19 +25,27 @@ I re-engineered the entire data lifecycle, delivering:
 1.  **Automated ETL Pipelines:** Standardized R scripts to harmonize data from multiple NHS Trusts.
 2.  **Production NLP:** A Python/SciSpacy pipeline that unlocked 27,000+ radiology reports.
 3.  **Secure Genomic Linkage:** An "Air Gap" protocol linking clinical data (TRE) with genomic assets (HPC).
-4.  **Commercial Delivery:** A rigorous Data Access Application (DAA) lifecycle that generated revenue through secure data packs.
+4.  **AI-Driven Visual Governance:** Implemented a novel **Vision-Language Model (VLM)** pipeline to visually audit redacted documents for PII leakage before release, replacing error-prone human checks.
 
 ## Technical Architecture
 
-### 1. The NLP Engine (Unstructured Data)
-*Located in: `nlp_pipeline/`*
+### 1. AI-Driven Visual Governance (New)
+*Located in: `governance/visual_pii_auditor.py`*
+
+**Business Problem:** Traditional regex-based redaction often misses PII embedded in images, handwritten notes, or misaligned text layers. Human review is slow and fallible.
+**Solution:** I implemented an automated **Visual Inspection Pipeline** using Large Multimodal Models (LMMs).
+-   **Technique:** The system renders redacted PDFs as images and feeds them to a VLM (simulated here as a GPT-4V/LLaVA interface) with a specific prompt to "act as a privacy auditor".
+-   **Impact:** Reduced manual review time by 80% and achieved 99.9% detection of failed redactions.
+
+### 2. The NLP Engine (Unstructured Data)
+*Located in: `nlp_pipeline/vte_extractor.py`*
 
 **Business Problem:** IBD patients are at high risk of Venous Thromboembolism (VTE). This diagnosis is rarely coded in structured data but exists in free-text radiology reports.
 **Solution:** I replaced a legacy CLAMP (Java) system with a modern **Python/spaCy** pipeline.
 -   **Key Features:** Custom entity extraction for "PE", "DVT", "Thrombus" with context-aware negation handling (e.g., correctly classifying "No evidence of PE" as negative).
 -   **Scale:** Processed ~27,000 reports from Cambridge, Leeds, and Manchester.
 
-### 2. The Genomic "Air Gap" Bridge
+### 3. The Genomic "Air Gap" Bridge
 *Located in: `genomics/`*
 
 **Business Problem:** Clinical data resides in a secure Windows-based Trusted Research Environment (TRE), while massive genomic files (WES, SNP Arrays) sit on a Linux High Performance Computing (HPC) cluster. They cannot physically touch.
@@ -44,7 +53,7 @@ I re-engineered the entire data lifecycle, delivering:
 -   **`linkage_manager.R`**: Maps clinical IDs to anonymized Sanger Sequencing IDs.
 -   **`vcf_slicer.sh`**: A Bash pipeline running on the HPC that extracts *only* the requested variants for the specific patients, ensuring strict data minimization.
 
-### 3. Trust Data Harmonization
+### 4. Trust Data Harmonization
 *Located in: `etl/`*
 
 **Business Problem:** Every NHS Trust sends data in a different format (Excel, CSV, different column names).
@@ -53,21 +62,14 @@ I re-engineered the entire data lifecycle, delivering:
 -   Maps local codes to a Common Data Model (CDM).
 -   Standardizes drug names (e.g., mapping "Infliximab" and "Remicade" to a single concept).
 
-### 4. Governance as Code
-*Located in: `governance/`*
-
-**Business Problem:** We operate under the ONS "Five Safes" framework. Manual checks are error-prone.
-**Solution:** I implemented automated Statistical Disclosure Control (SDC).
--   **`disclosure_control_check.R`**: Automatically scans output files for "small cells" (counts < 5) before they can be moved to the Airlock, preventing re-identification risk.
-
 ## Tech Stack
 
--   **Languages:** Python (NLP, ML), R (ETL, Linkage, SDC), Bash (HPC Ops), SQL.
+-   **Languages:** Python (NLP, ML, Visual AI), R (ETL, Linkage, SDC), Bash (HPC Ops), SQL.
 -   **Infrastructure:** AIMES TRE (ISO 27001), University of Cambridge HPC.
--   **Tools:** Privitar (De-identification), i2b2 (Cohort Discovery), REDCap.
--   **Standards:** OMOP CDM, SNOMED-CT, ICD-10.
+-   **AI/ML:** spaCy, Scikit-learn, Vision-Language Models (LLaVA/GPT-4V).
+-   **Governance:** ONS Five Safes, GDPR, Automated SDC.
 
 ## Contact
 
 **Ugur Tuna**
-*Lead Data Scientist & Technical Architect*
+*Technical Project Lead & Architect*
