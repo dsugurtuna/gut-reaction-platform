@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  # --- Frontend Layer ---
+  dashboard:
+    build: ./ui
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-gateway
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+
+  # --- API Gateway / Orchestration ---
+  api-gateway:
+    image: nginx:alpine
+    ports:
+      - "8000:80"
+    volumes:
+      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - phenotype-nlp
+      - governance-auditor
+
+  # --- Microservices ---
+  
+  # 1. NLP Service (Python/Spacy/FastAPI)
+  phenotype-nlp:
+    build: ./services/phenotype-nlp
+    command: uvicorn main:app --host 0.0.0.0 --port 8001
+    environment:
+      - MODEL_PATH=/models/en_core_sci_lg
+      - DB_HOST=postgres
+    depends_on:
+      - postgres
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # 2. Governance Service (Python/VLM)
+  governance-auditor:
+    build: ./services/governance-auditor
+    command: python -m uvicorn main:app --host 0.0.0.0 --port 8002
+    environment:
+      - VLM_MODEL=llava-v1.5-7b
+      - AUDIT_LOG_PATH=/var/log/audit
+    volumes:
+      - audit-logs:/var/log/audit
+
+  # 3. Clinical Ingestion (R/Plumber)
+  clinical-ingestion:
+    build: ./services/clinical-ingestion
+    command: Rscript start_api.R
+    volumes:
+      - ./data/clinical:/data/clinical
+
+  # 4. Genomic Bridge (R/Bioconductor)
+  genomic-bridge:
+    build: ./services/genomic-bridge
+    command: Rscript start_linkage_service.R
+    volumes:
+      - /mnt/hpc/data:/hpc/data:ro  # Read-only mount to HPC storage
+
+  # --- Data Layer ---
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=secure_password
+      - POSTGRES_DB=gut_reaction_db
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres-data:
+  audit-logs:

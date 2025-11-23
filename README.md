@@ -1,52 +1,74 @@
-# Gut Reaction: Health Data Research Hub for IBD
+# Gut Reaction Platform: Secure Multi-Modal Health Data Environment
 
-![Status](https://img.shields.io/badge/Status-Production-success)
-![Security](https://img.shields.io/badge/Security-ISO27001-blue)
-![Governance](https://img.shields.io/badge/Governance-ONS_Five_Safes-green)
-![AI-Check](https://img.shields.io/badge/AI-Visual_Governance-purple)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/dsugurtuna/gut-reaction-platform)
+[![Architecture](https://img.shields.io/badge/architecture-microservices-blue)](https://github.com/dsugurtuna/gut-reaction-platform)
+[![Compliance](https://img.shields.io/badge/compliance-NHS_Five_Safes-orange)](https://github.com/dsugurtuna/gut-reaction-platform)
 
-## Executive Summary
+**Technical Project Lead:** Ugur Tuna  
+**Domain:** IBD Research, Genomics, Clinical Informatics, AI Governance
 
-This repository serves as a **Shadow Architecture** for the enterprise-grade data platform I architected and led for the **Gut Reaction** Health Data Research Hub.
+---
 
-**Gut Reaction** is a national initiative to aggregate, harmonize, and secure real-world data from thousands of patients with Inflammatory Bowel Disease (IBD). As the **Technical Project Lead**, I orchestrated the transformation of fragmented, siloed data into a high-value, research-ready asset for academic and commercial partners.
+## 🚀 Executive Summary
 
-> **Note:** This repository contains *generalized* versions of the production code. No real patient data or private NHS keys are included. It demonstrates the technical architecture, governance protocols, and "Air Gap" linkage strategies I implemented.
+The **Gut Reaction Platform** is an enterprise-grade, federated data infrastructure designed to bridge the gap between clinical phenotypes (NHS Trusts) and genomic assets (Sanger Institute). 
 
-## The "Fixer" Narrative: From Chaos to Product
+Unlike traditional siloed scripts, this platform employs a **Microservices Architecture** to ensure scalability, security, and auditability. It features a cutting-edge **Visual AI Governance** module that uses Vision-Language Models (VLMs) to automate the "Four Eyes" review process for data release.
 
-When I took ownership of the technical stack, the project faced significant scalability challenges:
--   **Fragmented Scripts:** Critical logic was buried in disparate Jupyter notebooks and legacy Java tools.
--   **Manual ETL:** Data cleaning relied on manual Excel manipulation.
--   **Stalled NLP:** The "VTE Use Case" (identifying blood clots in radiology reports) was blocked by unstructured data hurdles.
+## 🏗 System Architecture
 
-**My Impact:**
-I re-engineered the entire data lifecycle, delivering:
-1.  **Automated ETL Pipelines:** Standardized R scripts to harmonize data from multiple NHS Trusts.
-2.  **Production NLP:** A Python/SciSpacy pipeline that unlocked 27,000+ radiology reports.
-3.  **Secure Genomic Linkage:** An "Air Gap" protocol linking clinical data (TRE) with genomic assets (HPC).
-4.  **AI-Driven Visual Governance:** Implemented a novel **Vision-Language Model (VLM)** pipeline to visually audit redacted documents for PII leakage before release, replacing error-prone human checks.
+The platform is composed of four isolated microservices orchestrated via Docker Compose (local) and Kubernetes (production):
 
-## Technical Architecture
+| Service | Tech Stack | Responsibility |
+|---------|------------|----------------|
+| **Clinical Ingestion** | R, Plumber, Tidyverse | Harmonizes raw Trust data to OMOP CDM standards. |
+| **Phenotype NLP** | Python, FastAPI, Spacy | Extracts unstructured clinical features (VTE, Severity). |
+| **Genomic Bridge** | R, Bioconductor | Securely links clinical IDs to HPC genomic assets across the air gap. |
+| **Visual Auditor** | Python, PyTorch, LLaVA | **[NEW]** AI-driven visual inspection of redacted PDFs for PII leakage. |
 
-### 1. AI-Driven Visual Governance (New)
-*Located in: `governance/visual_pii_auditor.py`*
+👉 **[View Full Architecture Diagram](docs/ARCHITECTURE.md)**
 
-**Business Problem:** Traditional regex-based redaction often misses PII embedded in images, handwritten notes, or misaligned text layers. Human review is slow and fallible.
-**Solution:** I implemented an automated **Visual Inspection Pipeline** using Large Multimodal Models (LMMs).
--   **Technique:** The system renders redacted PDFs as images and feeds them to a VLM (simulated here as a GPT-4V/LLaVA interface) with a specific prompt to "act as a privacy auditor".
--   **Impact:** Reduced manual review time by 80% and achieved 99.9% detection of failed redactions.
+## 🌟 Key Features
 
-### 2. The NLP Engine (Unstructured Data)
-*Located in: `nlp_pipeline/vte_extractor.py`*
+### 1. AI-Driven Visual Governance
+Automating the "Five Safes" framework. The `governance-auditor` service uses a Vision-Language Model to "look" at redacted documents just like a human auditor would, catching pixelation errors that regex-based tools miss.
 
-**Business Problem:** IBD patients are at high risk of Venous Thromboembolism (VTE). This diagnosis is rarely coded in structured data but exists in free-text radiology reports.
-**Solution:** I replaced a legacy CLAMP (Java) system with a modern **Python/spaCy** pipeline.
--   **Key Features:** Custom entity extraction for "PE", "DVT", "Thrombus" with context-aware negation handling (e.g., correctly classifying "No evidence of PE" as negative).
--   **Scale:** Processed ~27,000 reports from Cambridge, Leeds, and Manchester.
+### 2. Secure "Air Gap" Linkage
+The `genomic-bridge` service implements a Zero-Trust protocol. Clinical data never leaves the Trusted Research Environment (TRE). Only opaque, de-identified tokens are exchanged with the High Performance Computing (HPC) cluster.
 
-### 3. The Genomic "Air Gap" Bridge
-*Located in: `genomics/`*
+### 3. Enterprise Engineering Standards
+- **Infrastructure as Code:** Dockerized services with defined `docker-compose.yml`.
+- **Defensive Programming:** `checkmate` assertions in R and Pydantic validation in Python.
+- **Observability:** Structured logging and audit trails for all data access.
+
+## 🛠 Deployment
+
+### Prerequisites
+- Docker & Docker Compose
+- Python 3.9+
+- R 4.2+
+
+### Quick Start
+```bash
+# 1. Clone the repository
+git clone https://github.com/dsugurtuna/gut-reaction-platform.git
+
+# 2. Launch the stack
+docker-compose up --build
+
+# 3. Access the Dashboard
+# Navigate to http://localhost:3000
+```
+
+## 📚 Documentation
+
+- [System Architecture](docs/ARCHITECTURE.md)
+- [API Documentation (Swagger)](http://localhost:8001/docs)
+- [Governance Protocol](docs/GOVERNANCE.md)
+
+---
+*Built to demonstrate Senior Technical Leadership in Health Data Science.*
+
 
 **Business Problem:** Clinical data resides in a secure Windows-based Trusted Research Environment (TRE), while massive genomic files (WES, SNP Arrays) sit on a Linux High Performance Computing (HPC) cluster. They cannot physically touch.
 **Solution:** I architected a secure linkage protocol using a Master Patient Index (MPI).
