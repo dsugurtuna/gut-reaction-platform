@@ -1,0 +1,105 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gut-reaction-ingress
+  namespace: gut-reaction
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+    - hosts:
+        - api.gut-reaction.nhs.uk
+      secretName: gut-reaction-tls
+  rules:
+    - host: api.gut-reaction.nhs.uk
+      http:
+        paths:
+          - path: /api/v1/nlp
+            pathType: Prefix
+            backend:
+              service:
+                name: phenotype-nlp
+                port:
+                  number: 8001
+          - path: /api/v1/audit
+            pathType: Prefix
+            backend:
+              service:
+                name: governance-auditor
+                port:
+                  number: 8003
+          - path: /api/v1/clinical
+            pathType: Prefix
+            backend:
+              service:
+                name: clinical-ingestion
+                port:
+                  number: 8002
+          - path: /api/v1/genomic
+            pathType: Prefix
+            backend:
+              service:
+                name: genomic-bridge
+                port:
+                  number: 8004
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: gut-reaction
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-services
+  namespace: gut-reaction
+spec:
+  podSelector:
+    matchLabels:
+      tier: service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8001
+        - protocol: TCP
+          port: 8002
+        - protocol: TCP
+          port: 8003
+        - protocol: TCP
+          port: 8004
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: services-to-database
+  namespace: gut-reaction
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: service
+      ports:
+        - protocol: TCP
+          port: 5432

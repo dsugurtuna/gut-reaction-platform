@@ -1,0 +1,36 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: gut-reaction
+
+resources:
+  - namespace.yaml
+  - phenotype-nlp.yaml
+  - governance-auditor.yaml
+  - ingress.yaml
+
+configMapGenerator:
+  - name: gut-reaction-config
+    literals:
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=production
+
+secretGenerator:
+  - name: database-credentials
+    type: Opaque
+    literals:
+      - host=postgres.gut-reaction.svc.cluster.local
+      - port=5432
+      - username=admin
+      - password=CHANGE_ME_IN_PRODUCTION
+      - database=gut_reaction_db
+
+images:
+  - name: ghcr.io/dsugurtuna/gut-reaction/phenotype-nlp
+    newTag: latest
+  - name: ghcr.io/dsugurtuna/gut-reaction/governance-auditor
+    newTag: latest
+
+commonLabels:
+  project: gut-reaction
+  managed-by: kustomize

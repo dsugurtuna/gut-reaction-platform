@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: governance-auditor
+  namespace: gut-reaction
+  labels:
+    app: governance-auditor
+    version: v1.0.0
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: governance-auditor
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: governance-auditor
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8003"
+    spec:
+      serviceAccountName: gut-reaction-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: governance-auditor
+          image: ghcr.io/dsugurtuna/gut-reaction/governance-auditor:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8003
+              protocol: TCP
+          env:
+            - name: VLM_MODEL
+              value: llava-v1.5-7b
+            - name: VLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vlm-credentials
+                  key: api_key
+            - name: AUDIT_LOG_PATH
+              value: /var/log/audit
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: gut-reaction-config
+                  key: LOG_LEVEL
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "2Gi"
+            limits:
+              cpu: "4000m"
+              memory: "8Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8003
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8003
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          volumeMounts:
+            - name: audit-logs
+              mountPath: /var/log/audit
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: audit-logs
+          persistentVolumeClaim:
+            claimName: audit-logs-pvc
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: governance-auditor
+  namespace: gut-reaction
+  labels:
+    app: governance-auditor
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8003
+      targetPort: 8003
+      protocol: TCP
+      name: http
+  selector:
+    app: governance-auditor
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: governance-auditor-hpa
+  namespace: gut-reaction
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: governance-auditor
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
