@@ -5,9 +5,7 @@ from typing import List, Dict
 import logging
 
 # Configure Enterprise Logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("NLP_Pipeline")
 
 
@@ -27,9 +25,7 @@ class VTEExtractor:
         try:
             self.nlp = spacy.load(model_name)
         except OSError:
-            logger.warning(
-                f"Model {model_name} not found. Falling back to en_core_web_sm (Mock Mode)."
-            )
+            logger.warning(f"Model {model_name} not found. Falling back to en_core_web_sm (Mock Mode).")
             self.nlp = spacy.load("en_core_web_sm")
 
         self._setup_matcher()

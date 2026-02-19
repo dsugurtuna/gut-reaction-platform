@@ -26,17 +26,13 @@ jobs:
           python-version: '3.11'
 
       - name: Install linters
-        run: |
-          pip install ruff black mypy
+        run: pip install ruff
 
-      - name: Run Ruff
+      - name: Run Ruff lint
         run: ruff check services/
 
-      - name: Run Black (check)
-        run: black --check services/
-
-      - name: Run MyPy
-        run: mypy services/phenotype-nlp/src services/governance-auditor/src || true
+      - name: Run Ruff format check
+        run: ruff format --check services/
 
   # ===========================================================================
   # Security Scanning
@@ -105,6 +101,7 @@ jobs:
     name: 🧪 R Tests
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         service: [clinical-ingestion, genomic-bridge]
     steps:
@@ -113,11 +110,12 @@ jobs:
       - name: Set up R
         uses: r-lib/actions/setup-r@v2
         with:
-          r-version: '4.2.0'
+          r-version: '4.3.0'
+          use-public-rspm: true
 
       - name: Install R dependencies
         run: |
-          install.packages(c("testthat", "tidyverse", "checkmate", "data.table"), repos = "https://cloud.r-project.org")
+          install.packages(c("testthat", "dplyr", "tibble", "stringr", "checkmate", "data.table"), repos = "https://cloud.r-project.org")
         shell: Rscript {0}
 
       - name: Run R tests

@@ -1,5 +1,6 @@
 library(testthat)
-library(tidyverse)
+library(dplyr)
+library(stringr)
 library(checkmate)
 
 # ---------------------------------------------------------------------------
@@ -43,9 +44,10 @@ test_that("drug matching is case-insensitive", {
 # ---------------------------------------------------------------------------
 
 test_that("date parsing succeeds for expected formats", {
-  expect_false(is.na(lubridate::parse_date_time("01-06-2021", orders = c("dmy", "ymd", "mdy"))))
-  expect_false(is.na(lubridate::parse_date_time("2021-06-01", orders = c("dmy", "ymd", "mdy"))))
-  expect_true(is.na(lubridate::parse_date_time("not-a-date",  orders = c("dmy", "ymd", "mdy"), quiet = TRUE)))
+  # Use base R date parsing to avoid extra dependency
+  expect_false(is.na(as.Date("01-06-2021", format = "%d-%m-%Y")))
+  expect_false(is.na(as.Date("2021-06-01", format = "%Y-%m-%d")))
+  expect_true(is.na(as.Date("not-a-date", format = "%Y-%m-%d")))
 })
 
 # ---------------------------------------------------------------------------
