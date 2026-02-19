@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import List, Optional
 import logging
-from vte_extractor import VTEPhenotypeExtractor
+from vte_extractor import VTEExtractor as VTEPhenotypeExtractor
 
 # --- Configuration ---
 logging.basicConfig(level=logging.INFO)
