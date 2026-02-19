@@ -54,16 +54,20 @@ class TestResponseParsing:
     def test_parse_valid_response(self):
         auditor = VisualPIIAuditor(api_key="mock")
         response = {
-            "choices": [{
-                "message": {
-                    "content": json.dumps({
-                        "is_safe": True,
-                        "risk_score": 0.1,
-                        "detected_pii": [],
-                        "reasoning": "Document is clean.",
-                    })
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "is_safe": True,
+                                "risk_score": 0.1,
+                                "detected_pii": [],
+                                "reasoning": "Document is clean.",
+                            }
+                        )
+                    }
                 }
-            }]
+            ]
         }
         result = auditor._parse_vlm_response(response)
         assert result.is_safe is True

@@ -117,13 +117,13 @@ jobs:
 
       - name: Install R dependencies
         run: |
-          install.packages(c("testthat", "tidyverse", "checkmate"), repos = "https://cloud.r-project.org")
+          install.packages(c("testthat", "tidyverse", "checkmate", "data.table"), repos = "https://cloud.r-project.org")
         shell: Rscript {0}
 
       - name: Run R tests
         working-directory: services/${{ matrix.service }}
         run: |
-          testthat::test_dir("tests", reporter = "check") || echo "No tests found"
+          testthat::test_dir("tests", reporter = "summary")
         shell: Rscript {0}
 
   # ===========================================================================

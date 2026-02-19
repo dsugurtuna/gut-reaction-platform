@@ -13,23 +13,21 @@ def extractor():
 
 class TestVTEExtractor:
     def test_positive_detection(self, extractor):
-        results = extractor.process_batch([
-            "Patient has a massive pulmonary embolism in the left lung."
-        ])
+        results = extractor.process_batch(
+            ["Patient has a massive pulmonary embolism in the left lung."]
+        )
         assert len(results) == 1
         assert results[0]["status"] == "POSITIVE_VTE"
 
     def test_negated_finding(self, extractor):
-        results = extractor.process_batch([
-            "No evidence of PE or DVT."
-        ])
+        results = extractor.process_batch(["No evidence of PE or DVT."])
         assert len(results) == 1
         assert results[0]["status"] in ("NEGATIVE_VTE", "NO_MENTION")
 
     def test_no_mention(self, extractor):
-        results = extractor.process_batch([
-            "Patient presents with mild headache and fatigue."
-        ])
+        results = extractor.process_batch(
+            ["Patient presents with mild headache and fatigue."]
+        )
         assert results[0]["status"] == "NO_MENTION"
         assert results[0]["evidence"] is None
 
@@ -43,17 +41,17 @@ class TestVTEExtractor:
         assert len(results) == 3
 
     def test_confidence_on_positive(self, extractor):
-        results = extractor.process_batch([
-            "CT scan reveals filling defect in the pulmonary artery."
-        ])
+        results = extractor.process_batch(
+            ["CT scan reveals filling defect in the pulmonary artery."]
+        )
         if results[0]["status"] == "POSITIVE_VTE":
             assert "confidence" in results[0]
             assert results[0]["confidence"] > 0
 
     def test_evidence_populated(self, extractor):
-        results = extractor.process_batch([
-            "Confirmed pulmonary embolism on CT angiography."
-        ])
+        results = extractor.process_batch(
+            ["Confirmed pulmonary embolism on CT angiography."]
+        )
         if results[0]["status"] == "POSITIVE_VTE":
             assert results[0]["evidence"] is not None
             assert len(results[0]["evidence"]) > 0
