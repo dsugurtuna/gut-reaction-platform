@@ -1,24 +1,32 @@
-# CI-specific overrides: remove GPU requirements, host mounts, and expose ports
+# Standalone CI compose file for integration tests.
+# Does NOT extend docker-compose.yml — avoids GPU reservation merge issues.
 version: '3.8'
 
 services:
   phenotype-nlp:
+    build: ./services/phenotype-nlp
+    command: uvicorn main:app --host 0.0.0.0 --port 8001
     ports:
       - "8001:8001"
-    deploy:
-      resources:
-        reservations: {}
+    environment:
+      - MODEL_PATH=/models/en_core_sci_lg
+      - DB_HOST=postgres
+    depends_on:
+      postgres:
+        condition: service_started
 
   governance-auditor:
+    build: ./services/governance-auditor
+    command: python -m uvicorn main:app --host 0.0.0.0 --port 8002
     ports:
       - "8002:8002"
+    environment:
+      - VLM_MODEL=llava-v1.5-7b
+      - AUDIT_LOG_PATH=/var/log/audit
 
-  clinical-ingestion:
-    volumes: []
-
-  genomic-bridge:
-    volumes: []
-
-  dashboard:
-    profiles:
-      - full  # skip in CI
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=secure_password
+      - POSTGRES_DB=gut_reaction_db

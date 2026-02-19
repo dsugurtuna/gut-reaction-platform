@@ -183,7 +183,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Start services
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build
+        run: docker compose -f docker-compose.ci.yml up -d --build
         env:
           DOCKER_BUILDKIT: 1
 
@@ -192,8 +192,13 @@ jobs:
           echo "Waiting for services to be healthy..."
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8001/health > /dev/null 2>&1; then
-              echo "Services are healthy!"
+              echo "phenotype-nlp is healthy!"
               break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "Timed out waiting for services"
+              docker compose -f docker-compose.ci.yml logs
+              exit 1
             fi
             echo "Attempt $i/30 — waiting..."
             sleep 10
@@ -212,11 +217,11 @@ jobs:
 
       - name: Collect logs on failure
         if: failure()
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml logs
+        run: docker compose -f docker-compose.ci.yml logs
 
       - name: Stop services
         if: always()
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
+        run: docker compose -f docker-compose.ci.yml down -v
 
   # ===========================================================================
   # Deploy (Manual Trigger)
