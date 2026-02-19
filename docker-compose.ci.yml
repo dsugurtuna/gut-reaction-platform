@@ -1,0 +1,24 @@
+# CI-specific overrides: remove GPU requirements, host mounts, and expose ports
+version: '3.8'
+
+services:
+  phenotype-nlp:
+    ports:
+      - "8001:8001"
+    deploy:
+      resources:
+        reservations: {}
+
+  governance-auditor:
+    ports:
+      - "8002:8002"
+
+  clinical-ingestion:
+    volumes: []
+
+  genomic-bridge:
+    volumes: []
+
+  dashboard:
+    profiles:
+      - full  # skip in CI
