@@ -1,510 +1,170 @@
-<div align="center">
+# Gut Reaction Platform
 
-# 🧬 Gut Reaction Platform
+[![CI/CD Pipeline](https://github.com/dsugurtuna/gut-reaction-platform/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dsugurtuna/gut-reaction-platform/actions/workflows/ci.yml)
+[![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 
-### Secure Multi-Modal Health Data Infrastructure for IBD Research
+A reference implementation of a small clinical research data platform: four services that flag
+clinical events in free text, check redacted documents for leaked identifiers, standardise hospital
+prescribing extracts and link a clinical cohort to genomic sample IDs. Some parts work end to end;
+others are scaffolds with mocked calls. The table under [What works today](#what-works-today) says
+which is which.
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/dsugurtuna/gut-reaction/ci.yml?branch=main&style=for-the-badge&logo=github-actions)](https://github.com/dsugurtuna/gut-reaction/actions)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge&logo=apache)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![R](https://img.shields.io/badge/R-4.2+-276DC3?style=for-the-badge&logo=r&logoColor=white)](https://r-project.org)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docker.com)
-[![Kubernetes](https://img.shields.io/badge/K8s-Production-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)](https://kubernetes.io)
+## The problem
 
-[![NHS Five Safes](https://img.shields.io/badge/Compliance-NHS_Five_Safes-00A499?style=for-the-badge)](https://ukdataservice.ac.uk/help/secure-lab/what-is-the-five-safes-framework/)
-[![GDPR](https://img.shields.io/badge/GDPR-Compliant-4CAF50?style=for-the-badge)](https://gdpr.eu)
-[![ISO 27001](https://img.shields.io/badge/ISO_27001-Certified_Env-FF6F00?style=for-the-badge)](https://www.iso.org/isoiec-27001-information-security.html)
+Research on conditions such as inflammatory bowel disease (IBD) needs three kinds of data that
+usually live apart:
 
-<p align="center">
-  <strong>Enterprise-grade federated data platform bridging clinical phenotypes and genomic assets for Inflammatory Bowel Disease (IBD) research.</strong>
-</p>
+- clinical records from several hospitals, each with its own column names, date formats and drug
+  spellings;
+- free-text reports (radiology, discharge letters) where important events, such as a venous
+  thromboembolism (VTE), are written down but rarely coded;
+- genomic data on a separate high-performance computing (HPC) system, which may only be joined to
+  clinical data through a pseudonymised ID bridge.
 
-[**📖 Documentation**](docs/) · [**🚀 Quick Start**](#-quick-start) · [**🏗 Architecture**](docs/ARCHITECTURE.md) · [**📡 API Reference**](docs/API.md) · [**🤝 Contributing**](CONTRIBUTING.md)
+Before anything leaves the secure environment, someone also has to check outputs for small counts
+and redaction failures. Doing each step by hand is slow and hard to repeat.
 
-</div>
+## What this does
 
----
+Each step is a separate service with its own tests.
 
-## 📋 Table of Contents
+| Service | Language | What it does |
+|---|---|---|
+| `phenotype-nlp` | Python, FastAPI, spaCy | Flags VTE mentions in a report and ignores negated ones ("no evidence of PE"). |
+| `governance-auditor` | Python, FastAPI | Designed to ask a vision-language model to look for PII in redacted pages. **The model call is mocked.** |
+| `clinical-ingestion` | R, plumber | Reads one prescribing extract (Excel), standardises columns, dates and four biologic drug names, and drops rows that fail two checks. |
+| `genomic-bridge` | R, plumber | Joins a clinical cohort to an ID bridge and a sample manifest, and keeps samples that pass QC and have data files. |
 
-- [Overview](#-overview)
-- [Key Features](#-key-features)
-- [Architecture](#-architecture)
-- [Services](#-services)
-- [Quick Start](#-quick-start)
-- [Configuration](#-configuration)
-- [Deployment](#-deployment)
-- [API Reference](#-api-reference)
-- [Security & Compliance](#-security--compliance)
-- [Performance](#-performance)
-- [Contributing](#-contributing)
-- [License](#-license)
+Around them: an nginx gateway config, a React dashboard shell, Kubernetes manifests, Terraform for
+AWS, and a GitHub Actions pipeline.
 
----
+### What works today
 
-## 🎯 Overview
+| Part | Status |
+|---|---|
+| VTE extraction (`phenotype-nlp`) | Works. Rule-based: 9 terms, whole-word negation cues in a 6-token window before the term. Not evaluated against annotated reports. `confidence` is a fixed 0.95 placeholder, not a probability. |
+| SciSpacy | Optional. The service asks for `en_core_sci_md` but the image does not install SciSpacy, so it falls back to spaCy's `en_core_web_sm`. Matching only uses the tokenizer, so results are the same. |
+| Visual PII audit (`governance-auditor`) | Reference implementation with a mocked model call. The prompt, response schema, parsing and fail-closed handling are real; `_call_vlm_api` returns the same canned answer for every file, and the file is never read. Responses carry `"mocked": true`. |
+| Prescribing harmonisation (`clinical-ingestion`) | Works on Excel input. Output is a flat table, **not** the OMOP Common Data Model: there are no concept IDs or vocabularies. |
+| Genomic linkage (`genomic-bridge`) | The join and QC rules work and are tested. File paths are fixed placeholders. `GET /status/{id}` is a mock. The code does not create or hash identifiers; it expects a bridge table made elsewhere. `vcf_slicer.sh` wraps bcftools and is untested. |
+| Small-cell check (`disclosure_control_check.R`) | Flags any value of a categorical column with fewer than 5 rows. One column at a time, no cross-tabulations. Not wired to an API and not tested. |
+| Dashboard (`ui/`) | Builds in CI. One page of hard-coded, labelled illustrative numbers and three "coming soon" pages. It does not call the services. |
+| Postgres and Redis | Started by Docker Compose. No service uses them yet. |
+| Kubernetes (`infrastructure/k8s/base`) | Rendered and checked against the Kubernetes 1.28 schemas in CI. Never deployed. Defines the two Python services only (the Ingress also routes to the R services, which have no manifests), and refers to a ServiceAccount, volumes and a Secret it does not define. Default-deny NetworkPolicies; Prometheus scrape annotations but no `/metrics` endpoint. |
+| Terraform (`infrastructure/terraform/aws`) | VPC, EKS 1.28, RDS PostgreSQL with a KMS key, ElastiCache Redis. Never applied, and not validated in CI. |
+| Authentication | None. No endpoint checks who is calling. |
 
-The **Gut Reaction Platform** is a production-ready, microservices-based data infrastructure designed to solve a critical challenge in translational medicine: **securely integrating clinical phenotypes from NHS Trusts with genomic data from High Performance Computing (HPC) environments**.
+The repository contains no patient data. Tests and examples use short invented sentences and tables.
 
-### The Problem
+## Quickstart
 
-```
-┌──────────────────────┐          🚫 AIR GAP 🚫          ┌──────────────────────┐
-│   NHS Trust TRE      │ ◄────── Cannot Connect ──────► │   Sanger HPC         │
-│   (Clinical Data)    │                                 │   (Genomic Data)     │
-│   - Patient Records  │                                 │   - WES/WGS CRAM     │
-│   - Prescriptions    │                                 │   - GWAS Arrays      │
-│   - Lab Results      │                                 │   - VCF Files        │
-└──────────────────────┘                                 └──────────────────────┘
-```
+These commands run the same checks as CI. They need Python 3.11, and R with `testthat`, `dplyr`,
+`tibble`, `stringr` and `checkmate` for the R tests. No API keys and no Docker.
 
-### The Solution
-
-A **federated architecture** where clinical data never leaves the Trusted Research Environment (TRE), and only de-identified tokens cross the air gap. The platform features AI-powered governance that automates compliance checks using Vision-Language Models.
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         GUT REACTION PLATFORM                                │
-│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐     │
-│  │  Clinical   │   │  Phenotype  │   │  Genomic    │   │  Visual AI  │     │
-│  │  Ingestion  │──►│    NLP      │──►│   Bridge    │──►│  Auditor    │     │
-│  │   (R)       │   │  (Python)   │   │    (R)      │   │  (Python)   │     │
-│  └─────────────┘   └─────────────┘   └─────────────┘   └─────────────┘     │
-│         │                 │                 │                 │             │
-│         └─────────────────┴─────────────────┴─────────────────┘             │
-│                                     │                                        │
-│                            ┌────────▼────────┐                              │
-│                            │   PostgreSQL    │                              │
-│                            │   (Audit Logs)  │                              │
-│                            └─────────────────┘                              │
-└─────────────────────────────────────────────────────────────────────────────┘
+```bash
+git clone https://github.com/dsugurtuna/gut-reaction-platform.git
+cd gut-reaction-platform
+make test     # Python (pytest) and R (testthat) unit tests; creates .venv-nlp and .venv-auditor
+make lint     # ruff 0.16.9, as pinned in CI
+make ui       # needs Node.js 22: type-check and build the dashboard
 ```
 
----
+To run the two Python services and call them (needs Docker; this is what the CI integration job does):
 
-## ✨ Key Features
-
-<table>
-<tr>
-<td width="50%">
-
-### 🤖 AI-Driven Visual Governance
-Automate the "Five Safes" framework using **Vision-Language Models** (LLaVA/GPT-4V) that visually inspect redacted documents—catching what regex-based tools miss.
-
-```python
-# Catches visual PII leakage
-auditor.audit_document("redacted_report.pdf")
-# ✓ Transparent redaction boxes
-# ✓ Names in margins
-# ✓ PII in embedded images
+```bash
+make up
+curl -s http://localhost:8001/health
+curl -s -X POST http://localhost:8001/extract/vte \
+  -H "Content-Type: application/json" \
+  -d '{"patient_id": "P001", "encounter_id": "E001", "text_content": "CT shows acute pulmonary embolism. No DVT."}'
+make down
 ```
 
-</td>
-<td width="50%">
+The second call returns:
 
-### 🔐 Zero-Trust Air Gap Linkage
-Clinical data **never leaves** the TRE. Only cryptographically-hashed, de-identified tokens cross to the HPC environment.
-
-```r
-# Clinical IDs → Opaque Tokens
-link_clinical_to_genomic(
-  clinical_cohort,    # Stays in TRE
-  linkage_key,        # Encrypted bridge
-  genomic_manifest    # HPC side
-)
+```json
+{"patient_id":"P001","status":"POSITIVE_VTE","has_vte":true,"confidence":0.95,"evidence":["pulmonary embolism"]}
 ```
 
-</td>
-</tr>
-<tr>
-<td width="50%">
+"DVT" is left out of the evidence because "No" comes just before it. `make up-all` starts every
+container, including the R services, gateway and dashboard; CI does not test that stack.
 
-### 🏥 OMOP CDM Harmonization
-Ingest raw NHS Trust extracts (Excel, CSV) and transform them into the [OMOP Common Data Model](https://ohdsi.github.io/CommonDataModel/) for standardized analysis.
-
-```r
-# Handles: Different column names,
-# date formats, drug name variants
-process_trust_prescribing(
-  file_path = "CAMBS_data.xlsx",
-  trust_id = "CAMBS"
-)
-```
-
-</td>
-<td width="50%">
-
-### 📝 Clinical NLP Pipeline
-Extract deep phenotypes (VTE history, disease severity, treatment response) from unstructured clinical notes using **SciSpacy** and context-aware negation detection.
-
-```python
-# "No evidence of PE" → Negative
-# "History of DVT"    → Positive
-extractor.process_batch(clinical_notes)
-```
-
-</td>
-</tr>
-</table>
-
----
-
-## 🏗 Architecture
-
-The platform follows a **microservices architecture** with clear separation of concerns:
+## How it works
 
 ```mermaid
-graph TB
-    subgraph "🌐 Frontend"
-        UI[React Dashboard :3000]
-    end
-    
-    subgraph "🚪 Gateway"
-        NGINX[NGINX API Gateway :8000]
-    end
-    
-    subgraph "🔬 Processing Services"
-        NLP[Phenotype NLP :8001]
-        ING[Clinical Ingestion :8002]
-        GOV[Visual Auditor :8003]
-        BRG[Genomic Bridge :8004]
-    end
-    
-    subgraph "💾 Data Layer"
-        PG[(PostgreSQL)]
-        RD[(Redis Cache)]
-    end
-    
-    subgraph "🖥️ HPC Environment"
-        SL[Slurm Cluster]
-        VCF[Genomic Data Lake]
-    end
-    
-    UI --> NGINX
-    NGINX --> NLP
-    NGINX --> ING
-    NGINX --> GOV
-    NGINX --> BRG
-    
-    NLP --> PG
-    ING --> PG
-    GOV --> PG
-    BRG -.->|De-identified tokens| SL
-    SL --> VCF
+flowchart LR
+    UI["Dashboard (React)<br/>illustrative data only"] -.->|not wired yet| GW
+    GW["nginx gateway :8000"] --> NLP["phenotype-nlp :8001<br/>spaCy PhraseMatcher + negation"]
+    GW --> AUD["governance-auditor :8002<br/>prompt + parser, model call mocked"]
+    GW --> ING["clinical-ingestion<br/>R / plumber"]
+    GW --> BRG["genomic-bridge<br/>R / plumber"]
+    ING -.->|cohort file| BRG
+    BRG -.->|sample list| VCF["vcf_slicer.sh<br/>bcftools, on the HPC side"]
+    PG[("Postgres<br/>unused so far")]
 ```
 
-**📚 [Full Architecture Documentation →](docs/ARCHITECTURE.md)**
+1. **Harmonise.** `process_trust_prescribing()` reads an extract, lower-cases column names, maps
+   drug names such as "Humira Pen" to "Adalimumab", parses dates in several formats and keeps rows
+   with a valid date and a target drug. It logs how many rows it dropped.
+2. **Extract phenotypes.** `VTEExtractor` matches VTE terms and drops a match when a cue such as
+   "no", "not", "ruled out" or "negative for" appears as a whole word in the six tokens before it.
+3. **Link.** `link_cohort()` inner-joins the cohort to the bridge table; `select_exportable()` keeps
+   samples with `qc_status == "PASS"`, contamination below 5% and at least one data file.
+4. **Check outputs.** The auditor is meant to catch what text rules miss (names in margins,
+   see-through redaction boxes). Until a real model is connected it returns a canned result, and
+   any response it cannot parse counts as unsafe.
+
+More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/API.md](docs/API.md),
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), and the reasoning behind each choice in
+[docs/WHY.md](docs/WHY.md).
+
+## Design decisions
+
+- **Rules before models for VTE.** A term list plus negation cues is easy to read, check and
+  explain, and it is the baseline any trained model has to beat. The next step is to measure it on
+  annotated reports, not to replace it.
+- **Negation cues match whole words.** Substring matching treated "known", "diagnosis" and
+  "normal" as containing "no" and hid real findings. There are regression tests for this.
+- **The mocked auditor says it is mocked.** `/health`, every response and the logs report
+  `mocked`, so nobody mistakes a canned answer for a real check. Parse failures fail closed.
+- **R for tabular clean-up, Python for the APIs around text.** The harmonisation and linkage steps
+  are data-frame work that R and dplyr express compactly. The pure rules live in their own files so
+  the tests exercise the same code the services run.
+- **One service per step.** Each step has different dependencies and a different risk. Keeping
+  them apart means the text service never needs genomic paths, and the linkage service never sees
+  free text.
+- **CI tests behaviour, not only start-up.** The integration job builds the images, calls the
+  endpoints and checks the response bodies. A 500 response used to pass.
+
+## Limitations and what this is not
+
+- It is not deployed anywhere and has never processed real patient data.
+- It is not an OMOP CDM pipeline, and it does not certify compliance with any framework.
+- The VTE rules have not been evaluated, so there is no accuracy figure. Known gaps: cues after the
+  term ("PE unlikely") are missed, and the window can cross sentence boundaries.
+- The visual PII check does not look at the document yet.
+- No authentication, no TLS between services, and a default Postgres password in the compose files.
+- The Terraform turns on `log_statement = all` for RDS, which would write query values to logs.
+  Review that before using it with sensitive data.
+- The Kubernetes network policies deny all egress, so pods could not resolve DNS or reach a database
+  without further rules.
+
+## Roadmap
+
+1. Evaluate the VTE extractor on a small, openly licensed or synthetic annotated set; report
+   precision and recall with the command that produces them.
+2. Connect a real vision-language model behind a feature flag, render PDF pages to images, and keep
+   the fail-closed parser.
+3. Map harmonised prescriptions to OMOP `drug_exposure` with real concept IDs, or stop using the
+   term.
+4. Add authentication to the APIs and a Kubernetes overlay with the missing ServiceAccount,
+   volumes, Secret and egress rules; validate the Terraform in CI.
+
+## Licence
+
+Apache License 2.0. See [LICENSE](LICENSE).
 
 ---
 
-## 🔧 Services
-
-| Service | Port | Tech Stack | Purpose |
-|---------|------|------------|---------|
-| **Dashboard** | `3000` | React, TypeScript, TailwindCSS | Researcher interface for cohort building |
-| **API Gateway** | `8000` | NGINX | Request routing, rate limiting, SSL termination |
-| **Phenotype NLP** | `8001` | Python, FastAPI, SciSpacy | Extract clinical phenotypes from free text |
-| **Clinical Ingestion** | `8002` | R, Plumber, Tidyverse | ETL pipeline for NHS Trust data |
-| **Visual Auditor** | `8003` | Python, PyTorch, LLaVA | AI-powered PII detection in documents |
-| **Genomic Bridge** | `8004` | R, Bioconductor | Secure clinical-genomic linkage |
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-| Requirement | Version | Purpose |
-|-------------|---------|---------|
-| [Docker](https://docker.com) | 20.10+ | Container runtime |
-| [Docker Compose](https://docs.docker.com/compose/) | 2.0+ | Multi-container orchestration |
-| [Make](https://www.gnu.org/software/make/) | 3.81+ | Build automation (optional) |
-
-### Installation
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/dsugurtuna/gut-reaction.git
-cd gut-reaction
-
-# 2. Copy environment configuration
-cp .env.example .env
-
-# 3. Start all services
-make up
-# or: docker-compose up --build -d
-
-# 4. Verify services are running
-make status
-# or: docker-compose ps
-```
-
-### Access Points
-
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| **Dashboard** | http://localhost:3000 | Demo mode |
-| **NLP API Docs** | http://localhost:8001/docs | OpenAPI/Swagger |
-| **Auditor API** | http://localhost:8003/docs | OpenAPI/Swagger |
-| **PostgreSQL** | localhost:5432 | `admin / secure_password` |
-
-### Test the API
-
-```bash
-# Health check
-curl http://localhost:8001/health
-
-# Extract VTE phenotype from clinical note
-curl -X POST http://localhost:8001/extract/vte \
-  -H "Content-Type: application/json" \
-  -d '{
-    "patient_id": "P001",
-    "encounter_id": "E001",
-    "text_content": "Patient presents with acute pulmonary embolism in the left lung."
-  }'
-```
-
-**Expected Response:**
-```json
-{
-  "patient_id": "P001",
-  "has_vte": true,
-  "confidence": 0.95,
-  "evidence": ["pulmonary embolism"]
-}
-```
-
----
-
-## ⚙️ Configuration
-
-### Environment Variables
-
-Create a `.env` file from the template:
-
-```bash
-cp .env.example .env
-```
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `POSTGRES_USER` | `admin` | Database username |
-| `POSTGRES_PASSWORD` | `secure_password` | Database password |
-| `POSTGRES_DB` | `gut_reaction_db` | Database name |
-| `VLM_API_KEY` | - | OpenAI/HuggingFace API key for Visual Auditor |
-| `VLM_MODEL` | `llava-v1.5-7b` | Vision-Language Model to use |
-| `LOG_LEVEL` | `INFO` | Logging verbosity |
-
-### Service Configuration
-
-Each service can be configured via its own `config/` directory:
-
-```
-services/
-├── phenotype-nlp/
-│   └── config/
-│       ├── models.yaml      # Spacy model settings
-│       └── ontology.yaml    # VTE term dictionary
-├── governance-auditor/
-│   └── config/
-│       └── prompts.yaml     # VLM prompt templates
-└── clinical-ingestion/
-    └── config/
-        └── trust_mappings/  # Per-Trust column mappings
-```
-
----
-
-## 🚢 Deployment
-
-### Local Development (Docker Compose)
-
-```bash
-make up        # Start all services
-make logs      # View logs
-make down      # Stop all services
-make clean     # Remove volumes and images
-```
-
-### Production (Kubernetes)
-
-```bash
-# Apply Kubernetes manifests
-kubectl apply -k infrastructure/k8s/overlays/production/
-
-# Or use Helm (coming soon)
-helm install gut-reaction ./charts/gut-reaction
-```
-
-### Cloud (Terraform)
-
-```bash
-cd infrastructure/terraform/aws
-
-# Initialize and apply
-terraform init
-terraform plan
-terraform apply
-```
-
-**📚 [Full Deployment Guide →](docs/DEPLOYMENT.md)**
-
----
-
-## 📡 API Reference
-
-### Phenotype NLP Service
-
-#### `POST /extract/vte`
-
-Extract VTE (Venous Thromboembolism) signals from clinical text.
-
-**Request:**
-```json
-{
-  "patient_id": "string",
-  "encounter_id": "string",
-  "text_content": "string",
-  "metadata": {}
-}
-```
-
-**Response:**
-```json
-{
-  "patient_id": "string",
-  "has_vte": true,
-  "confidence": 0.95,
-  "evidence": ["pulmonary embolism", "DVT"]
-}
-```
-
-#### `POST /batch/process`
-
-Submit multiple notes for background processing.
-
----
-
-### Visual Governance Auditor
-
-#### `POST /audit/document`
-
-Upload a document (PDF/image) for visual PII inspection.
-
-**Response:**
-```json
-{
-  "filename": "report.pdf",
-  "is_safe": false,
-  "risk_score": 0.95,
-  "detected_issues": [
-    "Patient Name: Sarah Jones (top-left header)",
-    "DOB visible in footer"
-  ]
-}
-```
-
-**📚 [Full API Documentation →](docs/API.md)**
-
----
-
-## 🔒 Security & Compliance
-
-### Framework Alignment
-
-| Framework | Status | Details |
-|-----------|--------|---------|
-| **NHS Five Safes** | ✅ Compliant | Safe People, Safe Projects, Safe Settings, Safe Data, Safe Outputs |
-| **GDPR** | ✅ Compliant | Data minimization, audit trails, right to erasure |
-| **ISO 27001** | ✅ Deployed in certified TRE | AIMES Research Environment |
-| **OWASP Top 10** | ✅ Mitigated | Input validation, auth, logging |
-
-### Security Features
-
-- 🔐 **Zero-Trust Architecture**: Services authenticate via mTLS
-- 📋 **Audit Trails**: All data access logged to immutable audit log
-- 🚫 **Data Minimization**: VCF slicer extracts only requested variants
-- 👁️ **Visual PII Detection**: AI catches what regex misses
-- 🔒 **Secrets Management**: Kubernetes Secrets / HashiCorp Vault
-
-**📚 [Security Documentation →](SECURITY.md)**
-
----
-
-## 📊 Performance
-
-### Benchmarks
-
-| Metric | Value | Notes |
-|--------|-------|-------|
-| NLP Throughput | 500 notes/min | Batch processing with `nlp.pipe()` |
-| VCF Extraction | 10,000 samples/hr | bcftools on 64-core HPC node |
-| Visual Audit | 3 sec/page | GPT-4V API latency |
-| API Latency (P95) | <200ms | Single note extraction |
-
-### Scalability
-
-```
-                    ┌─────────────────┐
-                    │  Load Balancer  │
-                    └────────┬────────┘
-                             │
-         ┌───────────────────┼───────────────────┐
-         │                   │                   │
-    ┌────▼────┐        ┌────▼────┐        ┌────▼────┐
-    │ NLP Pod │        │ NLP Pod │        │ NLP Pod │
-    │  (GPU)  │        │  (GPU)  │        │  (GPU)  │
-    └─────────┘        └─────────┘        └─────────┘
-```
-
-Horizontal Pod Autoscaler configured for 3-10 replicas based on CPU/Memory.
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-```bash
-# Fork and clone
-git clone https://github.com/YOUR_USERNAME/gut-reaction.git
-
-# Create feature branch
-git checkout -b feature/amazing-feature
-
-# Make changes and test
-make test
-
-# Submit PR
-git push origin feature/amazing-feature
-```
-
-**📚 [Contribution Guidelines →](CONTRIBUTING.md)**
-
----
-
-## 📄 License
-
-This project is licensed under the **Apache License 2.0** - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- [NIHR BioResource](https://bioresource.nihr.ac.uk/) - Clinical cohort access
-- [Wellcome Sanger Institute](https://www.sanger.ac.uk/) - Genomic infrastructure
-- [OHDSI OMOP CDM](https://ohdsi.org/) - Common data model specification
-- [SciSpacy](https://allenai.github.io/scispacy/) - Biomedical NLP models
-
----
-
-<div align="center">
-
-**Built with ❤️ for translational medicine research**
-
-[Ugur Tuna](https://github.com/dsugurtuna) · Technical Project Lead & Architect
-
-[![GitHub](https://img.shields.io/badge/GitHub-dsugurtuna-181717?style=flat-square&logo=github)](https://github.com/dsugurtuna)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-0A66C2?style=flat-square&logo=linkedin)](https://linkedin.com/in/ugurtuna)
-
-</div>
+Personal project by [Ugur Tuna](https://github.com/dsugurtuna). Not affiliated with or endorsed by
+any employer.
