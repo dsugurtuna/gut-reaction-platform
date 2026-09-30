@@ -129,6 +129,32 @@ jobs:
         shell: Rscript {0}
 
   # ===========================================================================
+  # Dashboard build
+  # ===========================================================================
+  # Type-checks and bundles the React dashboard. There are no UI tests yet.
+  ui-build:
+    name: 🖥️ Dashboard Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check and build
+        run: npm run build
+
+  # ===========================================================================
   # Build Docker Images
   # ===========================================================================
   # Pushes images only after the unit and integration tests pass.
