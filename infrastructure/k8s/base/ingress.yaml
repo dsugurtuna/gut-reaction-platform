@@ -31,7 +31,7 @@ spec:
               service:
                 name: governance-auditor
                 port:
-                  number: 8003
+                  number: 8002
           - path: /api/v1/clinical
             pathType: Prefix
             backend:
@@ -73,7 +73,8 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              name: ingress-nginx
+              # Set automatically on every namespace since Kubernetes 1.22.
+              kubernetes.io/metadata.name: ingress-nginx
       ports:
         - protocol: TCP
           port: 8001

@@ -26,9 +26,9 @@ secretGenerator:
       - database=gut_reaction_db
 
 images:
-  - name: ghcr.io/dsugurtuna/gut-reaction/phenotype-nlp
+  - name: ghcr.io/dsugurtuna/gut-reaction-platform/phenotype-nlp
     newTag: latest
-  - name: ghcr.io/dsugurtuna/gut-reaction/governance-auditor
+  - name: ghcr.io/dsugurtuna/gut-reaction-platform/governance-auditor
     newTag: latest
 
 commonLabels:
