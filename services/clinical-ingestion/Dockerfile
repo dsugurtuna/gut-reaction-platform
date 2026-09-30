@@ -14,4 +14,5 @@ WORKDIR /app
 COPY . .
 
 EXPOSE 8000
-CMD ["Rscript", "start_api.R"]
+# Sourcing the file only defines the routes; pr_run() starts the HTTP server.
+CMD ["Rscript", "-e", "plumber::pr_run(plumber::pr('start_api.R'), host = '0.0.0.0', port = 8000)"]

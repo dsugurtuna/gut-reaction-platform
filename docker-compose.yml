@@ -54,14 +54,14 @@ services:
   # 3. Clinical Ingestion (R/Plumber)
   clinical-ingestion:
     build: ./services/clinical-ingestion
-    command: Rscript start_api.R
+    command: ["Rscript", "-e", "plumber::pr_run(plumber::pr('start_api.R'), host = '0.0.0.0', port = 8000)"]
     volumes:
       - ./data/clinical:/data/clinical
 
   # 4. Genomic Bridge (R/Bioconductor)
   genomic-bridge:
     build: ./services/genomic-bridge
-    command: Rscript start_linkage_service.R
+    command: ["Rscript", "-e", "plumber::pr_run(plumber::pr('start_linkage_service.R'), host = '0.0.0.0', port = 8000)"]
     volumes:
       - /mnt/hpc/data:/hpc/data:ro  # Read-only mount to HPC storage
 

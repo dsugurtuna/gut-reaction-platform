@@ -3,7 +3,7 @@ library(checkmate)
 source("trust_data_harmonizer.R")
 
 #* @apiTitle Clinical Ingestion Service
-#* @apiDescription Standardizes NHS Trust data into the OMOP Common Data Model.
+#* @apiDescription Standardises drug names and dates in hospital prescribing extracts.
 
 #* Health Check
 #* @get /health
@@ -11,34 +11,32 @@ function() {
   list(status = "online", backend = "R 4.2.0")
 }
 
-#* Trigger Data Harmonization Batch
+#* Harmonise one prescribing extract
 #* @post /harmonize
-#* @param input_file The path to the raw CSV file
-function(input_file) {
+#* @param input_file Path, on the server, to the raw Excel (.xlsx) extract
+#* @param trust_id Site code accepted by process_trust_prescribing()
+function(input_file, trust_id) {
   
   # Validate input
   if (!file.exists(input_file)) {
-    return(list(error = "File not found"))
+    return(list(status = "error", message = "File not found"))
   }
   
   tryCatch({
-    message(sprintf("Starting harmonization for %s", input_file))
+    message(sprintf("Starting harmonisation for %s", input_file))
     
-    # Call the core logic from the sourced script
-    # (Assuming harmonize_trust_data is the main function)
-    result <- harmonize_trust_data(input_file, "mappings/omop_map.csv")
+    result <- process_trust_prescribing(input_file, trust_id)
     
     return(list(
       status = "success",
       rows_processed = nrow(result),
-      message = "Data successfully mapped to OMOP CDM"
+      message = "Drug names standardised and rows passing QC kept (flat table, not OMOP CDM)"
     ))
     
   }, error = function(e) {
-    return(list(status = "error", message = e$message))
+    return(list(status = "error", message = conditionMessage(e)))
   })
 }
 
-# Programmatic start
-# pr <- plumber::plumb("start_api.R")
-# pr$run(host = "0.0.0.0", port = 8000)
+# The container starts the API with:
+#   Rscript -e "plumber::pr_run(plumber::pr('start_api.R'), host = '0.0.0.0', port = 8000)"
