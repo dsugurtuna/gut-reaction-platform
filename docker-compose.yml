@@ -24,7 +24,7 @@ services:
 
   # --- Microservices ---
   
-  # 1. NLP Service (Python/Spacy/FastAPI)
+  # 1. NLP Service (Python/spaCy/FastAPI). CPU only: the rule-based matcher needs no GPU.
   phenotype-nlp:
     build: ./services/phenotype-nlp
     command: uvicorn main:app --host 0.0.0.0 --port 8001
@@ -33,15 +33,8 @@ services:
       - DB_HOST=postgres
     depends_on:
       - postgres
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
 
-  # 2. Governance Service (Python/VLM)
+  # 2. Governance Service (Python). The VLM call is mocked.
   governance-auditor:
     build: ./services/governance-auditor
     command: python -m uvicorn main:app --host 0.0.0.0 --port 8002
