@@ -1,6 +1,7 @@
 library(tidyverse)
 library(data.table)
 library(checkmate)
+source("linkage_rules.R")
 
 #' Genomic Linkage Manager
 #' 
@@ -28,10 +29,8 @@ link_clinical_to_genomic <- function(clinical_cohort_file, linkage_key_file, gen
   bridge <- fread(linkage_key_file)
   assert_subset(c("patient_id", "sanger_sample_id"), names(bridge))
   
-  # --- 4. Perform Linkage ---
-  linked_cohort <- clinical_data %>%
-    inner_join(bridge, by = "patient_id") %>%
-    filter(!is.na(sanger_sample_id))
+  # --- 4. Perform Linkage (see linkage_rules.R) ---
+  linked_cohort <- link_cohort(clinical_data, bridge)
   
   message(sprintf("Successfully Linked Patients: %d (Match Rate: %.1f%%)", 
                   nrow(linked_cohort), (nrow(linked_cohort)/nrow(clinical_data))*100))
@@ -44,15 +43,11 @@ link_clinical_to_genomic <- function(clinical_cohort_file, linkage_key_file, gen
     mutate(
       # Check for file existence (Mock paths for shadow repo)
       has_wes = file.exists(paste0("/mnt/hpc/data/wes/cram/", sanger_sample_id, ".cram")),
-      has_snp = file.exists(paste0("/mnt/hpc/data/snp/plink/", sanger_sample_id, ".bed")),
-      
-      # Quality Control Check
-      qc_pass = qc_status == "PASS" & contamination_rate < 0.05
+      has_snp = file.exists(paste0("/mnt/hpc/data/snp/plink/", sanger_sample_id, ".bed"))
     )
   
-  # --- 6. Filter for Valid Export ---
-  valid_export <- final_export_list %>%
-    filter(qc_pass == TRUE & (has_wes | has_snp)) %>%
+  # --- 6. Filter for Valid Export (QC and data availability, see linkage_rules.R) ---
+  valid_export <- select_exportable(final_export_list) %>%
     select(patient_id, sanger_sample_id, phenotype_status, has_wes, has_snp)
   
   message(sprintf("Final Validated Cohort for Export: %d", nrow(valid_export)))

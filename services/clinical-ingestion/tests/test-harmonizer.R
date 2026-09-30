@@ -3,22 +3,13 @@ library(dplyr)
 library(stringr)
 library(checkmate)
 
+# The rules the service uses (trust_data_harmonizer.R sources the same file).
+# testthat runs this file with the tests/ directory as the working directory.
+source(file.path("..", "harmonizer_rules.R"))
+
 # ---------------------------------------------------------------------------
 # Test: Drug-name standardisation regex logic
 # ---------------------------------------------------------------------------
-
-# Replicate the regex mapping from trust_data_harmonizer.R so we can
-# validate it without sourcing the whole file (which depends on readxl).
-
-standardise_drug <- function(drug) {
-  dplyr::case_when(
-    stringr::str_detect(drug, stringr::regex("inflix|remicade", ignore_case = TRUE)) ~ "Infliximab",
-    stringr::str_detect(drug, stringr::regex("adali|humira",   ignore_case = TRUE)) ~ "Adalimumab",
-    stringr::str_detect(drug, stringr::regex("vedo|entyvio",   ignore_case = TRUE)) ~ "Vedolizumab",
-    stringr::str_detect(drug, stringr::regex("uste|stelara",   ignore_case = TRUE)) ~ "Ustekinumab",
-    TRUE ~ "Other"
-  )
-}
 
 test_that("drug names are correctly standardised", {
   expect_equal(standardise_drug("Infliximab 100mg"),  "Infliximab")
@@ -55,8 +46,17 @@ test_that("date parsing succeeds for expected formats", {
 # ---------------------------------------------------------------------------
 
 test_that("only allowed trust IDs pass checkmate assertion", {
-  valid_trusts <- c("CAMBS", "LEEDS", "MANCH", "LPOOL")
-  expect_true(test_choice("CAMBS", valid_trusts))
-  expect_true(test_choice("LEEDS", valid_trusts))
-  expect_false(test_choice("INVALID", valid_trusts))
+  expect_true(test_choice("CAMBS", VALID_TRUST_IDS))
+  expect_true(test_choice("LEEDS", VALID_TRUST_IDS))
+  expect_false(test_choice("INVALID", VALID_TRUST_IDS))
+})
+
+test_that("column names are normalised", {
+  expect_equal(normalise_column_names(c("Patient ID", "Rx Date", "drug")),
+               c("patient_id", "rx_date", "drug"))
+})
+
+test_that("vectorised drug mapping keeps length and order", {
+  expect_equal(standardise_drug(c("Entyvio", "aspirin", "REMICADE")),
+               c("Vedolizumab", "Other", "Infliximab"))
 })
