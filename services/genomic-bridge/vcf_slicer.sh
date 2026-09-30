@@ -12,7 +12,7 @@
 #   ./vcf_slicer.sh [DAA_ID] [GENE_REGION]
 #
 # Example:
-#   ./vcf_slicer.sh DAA102 chr1:1000-2000
+#   ./vcf_slicer.sh REQ001 chr1:1000-2000
 # ==============================================================================
 
 set -e  # Exit immediately if a command exits with a non-zero status
@@ -73,5 +73,5 @@ tabix -p vcf "${OUTPUT_DIR}/${DAA_ID}_final_clean.vcf.gz"
 echo "========================================================"
 echo "Extraction Complete."
 echo "Output: ${OUTPUT_DIR}/${DAA_ID}_final_clean.vcf.gz"
-echo "Ready for Privitar ingestion and Airlock transfer."
+echo "Ready for de-identification and output checks."
 echo "========================================================"

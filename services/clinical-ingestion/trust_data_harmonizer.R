@@ -66,7 +66,7 @@ process_trust_prescribing <- function(file_path, trust_id) {
 }
 
 # --- Execution Example (Commented out for library usage) ---
-# cam_data <- process_trust_prescribing("inputs/CAMBS/2021-06-30_IBD_Medications.xlsx", "CAMBS")
-# lth_data <- process_trust_prescribing("inputs/LEEDS/LTH21049_Prescribing.xlsx", "LEEDS")
-# combined_cohort <- bind_rows(cam_data, lth_data)
+# site_a <- process_trust_prescribing("inputs/site_a/prescribing_extract.xlsx", "CAMBS")
+# site_b <- process_trust_prescribing("inputs/site_b/prescribing_extract.xlsx", "LEEDS")
+# combined_cohort <- bind_rows(site_a, site_b)
 # write_csv(combined_cohort, "outputs/harmonized_prescribing_cohort.csv")

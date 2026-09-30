@@ -41,7 +41,7 @@ link_clinical_to_genomic <- function(clinical_cohort_file, linkage_key_file, gen
   final_export_list <- linked_cohort %>%
     inner_join(genomic_inventory, by = "sanger_sample_id") %>%
     mutate(
-      # Check for file existence (Mock paths for shadow repo)
+      # Check for file existence (placeholder paths)
       has_wes = file.exists(paste0("/mnt/hpc/data/wes/cram/", sanger_sample_id, ".cram")),
       has_snp = file.exists(paste0("/mnt/hpc/data/snp/plink/", sanger_sample_id, ".bed"))
     )
@@ -57,8 +57,8 @@ link_clinical_to_genomic <- function(clinical_cohort_file, linkage_key_file, gen
 
 # --- Usage Example ---
 # target_list <- link_clinical_to_genomic(
-#   "requests/DAA102/clinical_cohort.csv",
-#   "secure/MPI_July2022.csv",
-#   "manifests/Sanger_Manifest_v4.csv"
+#   "requests/REQ001/clinical_cohort.csv",
+#   "secure/id_bridge.csv",
+#   "manifests/sample_manifest.csv"
 # )
-# write_csv(target_list, "outputs/DAA102_genomic_pull_list.csv")
+# write_csv(target_list, "outputs/REQ001_genomic_pull_list.csv")

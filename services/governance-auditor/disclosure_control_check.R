@@ -47,6 +47,6 @@ check_for_disclosure_risk <- function(output_dataframe, threshold = 5) {
 }
 
 # --- Mock Usage ---
-# df <- read_csv("outputs/commercial_release_v1.csv")
+# df <- read_csv("outputs/release_candidate.csv")
 # is_safe <- check_for_disclosure_risk(df)
-# if(is_safe) { file.copy("outputs/commercial_release_v1.csv", "airlock/") }
+# if(is_safe) { file.copy("outputs/release_candidate.csv", "airlock/") }

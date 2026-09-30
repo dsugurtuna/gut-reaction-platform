@@ -65,7 +65,7 @@ class VisualPIIAuditor:
         # 2. Construct the Visual Prompt
         prompt = self._get_audit_prompt()
 
-        # 3. Call the VLM (Mocked for Shadow Repo)
+        # 3. Call the VLM (mocked, see MOCKED)
         response = self._call_vlm_api(encoded_image, prompt)
 
         # 4. Parse Response
