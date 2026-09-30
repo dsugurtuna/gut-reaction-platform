@@ -272,3 +272,6 @@ htmlcov/
 .coverage
 coverage/
 coverage.xml
+
+# Per-service virtual environments created by the Makefile
+.venv-*/

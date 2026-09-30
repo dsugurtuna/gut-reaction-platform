@@ -12,10 +12,10 @@ metadata:
 spec:
   tls:
     - hosts:
-        - api.gut-reaction.nhs.uk
+        - api.gut-reaction.example.org
       secretName: gut-reaction-tls
   rules:
-    - host: api.gut-reaction.nhs.uk
+    - host: api.gut-reaction.example.org
       http:
         paths:
           - path: /api/v1/nlp
@@ -31,7 +31,7 @@ spec:
               service:
                 name: governance-auditor
                 port:
-                  number: 8003
+                  number: 8002
           - path: /api/v1/clinical
             pathType: Prefix
             backend:
@@ -73,7 +73,8 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              name: ingress-nginx
+              # Set automatically on every namespace since Kubernetes 1.22.
+              kubernetes.io/metadata.name: ingress-nginx
       ports:
         - protocol: TCP
           port: 8001

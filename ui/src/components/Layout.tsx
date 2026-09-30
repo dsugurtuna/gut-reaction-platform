@@ -50,11 +50,11 @@ export default function Layout({ children }: LayoutProps) {
         <div className="absolute bottom-0 left-0 right-0 border-t border-gray-200 p-4">
           <div className="flex items-center gap-3">
             <div className="h-8 w-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-sm font-medium">
-              UT
+              DU
             </div>
             <div>
-              <p className="text-sm font-medium text-gray-900">Ugur Tuna</p>
-              <p className="text-xs text-gray-500">Researcher</p>
+              <p className="text-sm font-medium text-gray-900">Demo user</p>
+              <p className="text-xs text-gray-500">No sign-in yet</p>
             </div>
           </div>
         </div>
@@ -65,8 +65,8 @@ export default function Layout({ children }: LayoutProps) {
         <header className="h-16 border-b border-gray-200 bg-white px-8 flex items-center justify-between">
           <div></div>
           <div className="flex items-center gap-4">
-            <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
-              TRE Connected
+            <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+              Demo data: not connected to the services
             </span>
             <button className="text-gray-500 hover:text-gray-700">
               <span className="sr-only">Settings</span>

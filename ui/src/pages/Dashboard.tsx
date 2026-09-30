@@ -1,7 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
-// Mock data for dashboard
+// Illustrative, hard-coded data. The dashboard does not call any service yet.
 const processingData = [
   { date: 'Mon', notes: 120 },
   { date: 'Tue', notes: 180 },
@@ -30,7 +29,7 @@ export default function Dashboard() {
     <div className="space-y-8">
       <div>
         <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
-        <p className="text-gray-500">Overview of platform activity and metrics</p>
+        <p className="text-gray-500">Layout preview with illustrative, hard-coded numbers. Not real activity.</p>
       </div>
 
       {/* Stats Grid */}

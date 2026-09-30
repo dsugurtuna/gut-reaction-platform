@@ -5,6 +5,8 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+  # Manual runs. This is the only way the deploy job runs (see below).
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -25,8 +27,10 @@ jobs:
         with:
           python-version: '3.11'
 
+      # Pinned: new ruff releases add default rules, which would fail this job
+      # without any change to the code. Bump deliberately.
       - name: Install linters
-        run: pip install ruff
+        run: pip install ruff==0.16.9
 
       - name: Run Ruff lint
         run: ruff check services/
@@ -78,21 +82,21 @@ jobs:
 
       - name: Install dependencies
         working-directory: services/${{ matrix.service }}
-        run: |
-          pip install -r requirements.txt
-          pip install pytest pytest-cov
+        run: pip install -r requirements-dev.txt
 
       - name: Run tests
         working-directory: services/${{ matrix.service }}
-        run: |
-          pytest tests/ -v --cov=src --cov-report=xml || echo "No tests found"
+        run: pytest tests/ -v --cov=. --cov-report=xml
 
+      # Optional: needs a CODECOV_TOKEN secret, and never fails the build.
       - name: Upload coverage
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         if: always()
         with:
-          file: services/${{ matrix.service }}/coverage.xml
+          files: services/${{ matrix.service }}/coverage.xml
           flags: ${{ matrix.service }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
   # ===========================================================================
   # R Tests
@@ -114,8 +118,14 @@ jobs:
           use-public-rspm: true
 
       - name: Install R dependencies
+        # Binary packages from the Posit Public Package Manager configured by
+        # setup-r (use-public-rspm). Building from source failed on `fs`, which
+        # left testthat uninstalled; fail here if anything is missing.
         run: |
-          install.packages(c("testthat", "dplyr", "tibble", "stringr", "checkmate", "data.table"), repos = "https://cloud.r-project.org")
+          pkgs <- c("testthat", "dplyr", "tibble", "stringr", "checkmate", "data.table")
+          install.packages(pkgs)
+          missing <- setdiff(pkgs, rownames(installed.packages()))
+          if (length(missing) > 0) stop("Failed to install: ", paste(missing, collapse = ", "))
         shell: Rscript {0}
 
       - name: Run R tests
@@ -125,13 +135,68 @@ jobs:
         shell: Rscript {0}
 
   # ===========================================================================
+  # Dashboard build
+  # ===========================================================================
+  # Type-checks and bundles the React dashboard. There are no UI tests yet.
+  ui-build:
+    name: 🖥️ Dashboard Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check and build
+        run: npm run build
+
+  # ===========================================================================
+  # Kubernetes manifests
+  # ===========================================================================
+  # Renders the kustomization and checks it against the Kubernetes 1.28 API
+  # schemas. No cluster is involved, so this does not prove the manifests deploy.
+  validate-k8s:
+    name: ☸️ Validate K8s Manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL -o kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar xzf kubeconform.tar.gz kubeconform
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Render and validate
+        run: |
+          kubectl kustomize infrastructure/k8s/base > rendered.yaml
+          kubeconform -strict -summary -kubernetes-version 1.28.0 rendered.yaml
+
+  # ===========================================================================
   # Build Docker Images
   # ===========================================================================
+  # Pushes images only after the unit and integration tests pass.
   build:
     name: 🐳 Build & Push Images
     runs-on: ubuntu-latest
-    needs: [lint, test-python]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [integration, test-r]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       packages: write
@@ -174,11 +239,12 @@ jobs:
   # ===========================================================================
   # Integration Tests
   # ===========================================================================
+  # Builds the images from source with docker compose, so it does not need the
+  # pushed images and also runs on pull requests.
   integration:
     name: 🔗 Integration Tests
     runs-on: ubuntu-latest
-    needs: [build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint, test-python]
     steps:
       - uses: actions/checkout@v4
 
@@ -189,31 +255,49 @@ jobs:
 
       - name: Wait for services
         run: |
-          echo "Waiting for services to be healthy..."
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:8001/health > /dev/null 2>&1; then
-              echo "phenotype-nlp is healthy!"
-              break
-            fi
-            if [ "$i" -eq 30 ]; then
-              echo "Timed out waiting for services"
-              docker compose -f docker-compose.ci.yml logs
-              exit 1
-            fi
-            echo "Attempt $i/30 — waiting..."
-            sleep 10
+          for port in 8001 8002; do
+            echo "Waiting for the service on port $port..."
+            for i in $(seq 1 30); do
+              if curl -sf "http://localhost:$port/health" > /dev/null 2>&1; then
+                echo "Service on port $port is healthy"
+                break
+              fi
+              if [ "$i" -eq 30 ]; then
+                echo "Timed out waiting for the service on port $port"
+                docker compose -f docker-compose.ci.yml ps
+                docker compose -f docker-compose.ci.yml logs
+                exit 1
+              fi
+              echo "Attempt $i/30, waiting..."
+              sleep 10
+            done
           done
 
       - name: Run integration tests
         run: |
-          # Health checks
-          curl -f http://localhost:8001/health || exit 1
-          
-          # API tests
-          curl -X POST http://localhost:8001/extract/vte \
+          set -euo pipefail
+
+          # phenotype-nlp: the image ships en_core_web_sm, so that is what should load
+          curl -fsS http://localhost:8001/health | tee nlp_health.json
+          jq -e '.spacy_pipeline == "en_core_web_sm"' nlp_health.json
+
+          curl -fsS -X POST http://localhost:8001/extract/vte \
             -H "Content-Type: application/json" \
-            -d '{"patient_id":"test","encounter_id":"e1","text_content":"Patient has PE"}' \
-            || exit 1
+            -d '{"patient_id":"test","encounter_id":"e1","text_content":"Patient has PE"}' | tee vte_positive.json
+          jq -e '.has_vte == true and .evidence == ["PE"]' vte_positive.json
+
+          curl -fsS -X POST http://localhost:8001/extract/vte \
+            -H "Content-Type: application/json" \
+            -d '{"patient_id":"test","encounter_id":"e2","text_content":"No evidence of PE."}' | tee vte_negated.json
+          jq -e '.has_vte == false and .status == "NEGATIVE_VTE"' vte_negated.json
+
+          # governance-auditor: the VLM call is mocked, and the service must say so
+          curl -fsS http://localhost:8002/health | tee auditor_health.json
+          jq -e '.vlm_mocked == true' auditor_health.json
+
+          printf 'synthetic test page\n' > page.txt
+          curl -fsS -X POST http://localhost:8002/audit/document -F "file=@page.txt" | tee audit.json
+          jq -e '.mocked == true and .is_safe == false' audit.json
 
       - name: Collect logs on failure
         if: failure()
@@ -226,11 +310,14 @@ jobs:
   # ===========================================================================
   # Deploy (Manual Trigger)
   # ===========================================================================
+  # There is no cluster behind this repository. The job only runs when someone
+  # starts the workflow by hand on main (Actions > CI/CD Pipeline > Run workflow)
+  # and has added a base64-encoded KUBECONFIG repository secret.
   deploy:
     name: 🚀 Deploy to Production
     runs-on: ubuntu-latest
-    needs: [integration]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build, validate-k8s]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     environment: production
     steps:
       - uses: actions/checkout@v4
@@ -241,13 +328,18 @@ jobs:
           version: 'v1.28.0'
 
       - name: Configure kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG }}
         run: |
-          echo "${{ secrets.KUBECONFIG }}" | base64 -d > kubeconfig
-          export KUBECONFIG=kubeconfig
+          if [ -z "$KUBECONFIG_B64" ]; then
+            echo "::error::No KUBECONFIG secret is set, so there is no cluster to deploy to."
+            exit 1
+          fi
+          echo "$KUBECONFIG_B64" | base64 -d > "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
 
       - name: Deploy to Kubernetes
-        run: |
-          kubectl apply -k infrastructure/k8s/overlays/production/
+        run: kubectl apply -k infrastructure/k8s/base/
 
       - name: Verify deployment
         run: |

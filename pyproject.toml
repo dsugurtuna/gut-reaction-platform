@@ -1,10 +1,13 @@
+# Shared lint and format settings for the Python services (services/*).
+# The ruff version is pinned in .github/workflows/ci.yml so new default rules
+# cannot turn the lint job red without a code change.
 [tool.ruff]
-target-version = "py39"
+# Oldest interpreter in use: governance-auditor runs on python:3.10-slim.
+target-version = "py310"
 line-length = 120
+
+[tool.ruff.lint.isort]
+known-first-party = ["main", "vte_extractor", "visual_pii_auditor"]
 
 [tool.ruff.format]
 quote-style = "double"
-
-[tool.black]
-target-version = ["py39"]
-line-length = 120

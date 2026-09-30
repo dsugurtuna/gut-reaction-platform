@@ -1,523 +1,121 @@
-# System Architecture
+# System architecture
 
-## 📐 Gut Reaction Platform Architecture
-
-This document provides a comprehensive overview of the Gut Reaction Platform architecture, design decisions, and technical implementation details.
-
----
-
-## 📋 Table of Contents
-
-- [Overview](#overview)
-- [Architecture Principles](#architecture-principles)
-- [System Components](#system-components)
-- [Data Flow](#data-flow)
-- [Security Architecture](#security-architecture)
-- [Deployment Architecture](#deployment-architecture)
-- [Technology Decisions](#technology-decisions)
-
----
+This page describes what is in the repository today. Parts that are designed but not built are
+listed at the end, so the two are not confused. For the reasons behind each choice, see
+[WHY.md](WHY.md).
 
 ## Overview
 
-The Gut Reaction Platform is designed to solve a fundamental challenge in translational medicine: **securely integrating clinical phenotypes from NHS Trusts with genomic data from High Performance Computing environments**.
+The platform is split into four services, one per processing step, plus supporting pieces.
 
-### High-Level Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                              TRUSTED RESEARCH ENVIRONMENT (TRE)                      │
-│  ┌────────────────────────────────────────────────────────────────────────────────┐ │
-│  │                              PRESENTATION LAYER                                 │ │
-│  │  ┌─────────────────────────────────────────────────────────────────────────┐   │ │
-│  │  │                    React Dashboard (Port 3000)                           │   │ │
-│  │  │    • Cohort Builder    • Data Visualization    • Audit Dashboard        │   │ │
-│  │  └─────────────────────────────────────────────────────────────────────────┘   │ │
-│  └────────────────────────────────────────────────────────────────────────────────┘ │
-│                                          │                                           │
-│                                          ▼                                           │
-│  ┌────────────────────────────────────────────────────────────────────────────────┐ │
-│  │                              API GATEWAY LAYER                                  │ │
-│  │  ┌─────────────────────────────────────────────────────────────────────────┐   │ │
-│  │  │                    NGINX API Gateway (Port 8000)                         │   │ │
-│  │  │    • SSL Termination    • Rate Limiting    • Request Routing            │   │ │
-│  │  └─────────────────────────────────────────────────────────────────────────┘   │ │
-│  └────────────────────────────────────────────────────────────────────────────────┘ │
-│                     │                    │                    │                      │
-│                     ▼                    ▼                    ▼                      │
-│  ┌────────────────────────────────────────────────────────────────────────────────┐ │
-│  │                              SERVICE LAYER                                      │ │
-│  │                                                                                 │ │
-│  │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │ │
-│  │   │  Phenotype   │  │   Clinical   │  │   Visual     │  │   Genomic    │      │ │
-│  │   │    NLP       │  │  Ingestion   │  │  Auditor     │  │   Bridge     │      │ │
-│  │   │  (Python)    │  │    (R)       │  │  (Python)    │  │    (R)       │      │ │
-│  │   │  Port 8001   │  │  Port 8002   │  │  Port 8003   │  │  Port 8004   │      │ │
-│  │   └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘      │ │
-│  │                                                                                 │ │
-│  └────────────────────────────────────────────────────────────────────────────────┘ │
-│                     │                    │                    │                      │
-│                     ▼                    ▼                    ▼                      │
-│  ┌────────────────────────────────────────────────────────────────────────────────┐ │
-│  │                              DATA LAYER                                         │ │
-│  │   ┌──────────────────────┐      ┌──────────────────────┐                       │ │
-│  │   │     PostgreSQL       │      │       Redis          │                       │ │
-│  │   │   (Clinical Data)    │      │   (Cache/Queue)      │                       │ │
-│  │   │    Port 5432         │      │    Port 6379         │                       │ │
-│  │   └──────────────────────┘      └──────────────────────┘                       │ │
-│  └────────────────────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────────────────────┘
-                                          │
-                                          │ 🔐 Air Gap Bridge
-                                          │ (De-identified tokens only)
-                                          ▼
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                              HPC ENVIRONMENT (Sanger/Cambridge)                      │
-│  ┌────────────────────────────────────────────────────────────────────────────────┐ │
-│  │                              COMPUTE LAYER                                      │ │
-│  │   ┌──────────────────────┐      ┌──────────────────────┐                       │ │
-│  │   │    Slurm Cluster     │      │    VCF Slicer        │                       │ │
-│  │   │   (Job Scheduler)    │      │   (Bash Pipeline)    │                       │ │
-│  │   └──────────────────────┘      └──────────────────────┘                       │ │
-│  └────────────────────────────────────────────────────────────────────────────────┘ │
-│  ┌────────────────────────────────────────────────────────────────────────────────┐ │
-│  │                              GENOMIC DATA LAKE                                  │ │
-│  │   • WES/WGS CRAM Files    • SNP Array Data    • Imputed VCFs                   │ │
-│  └────────────────────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph clinical["Secure clinical environment"]
+        ING["clinical-ingestion (R, plumber)<br/>trust_data_harmonizer.R + harmonizer_rules.R"]
+        NLP["phenotype-nlp (Python, FastAPI)<br/>vte_extractor.py"]
+        AUD["governance-auditor (Python, FastAPI)<br/>visual_pii_auditor.py, VLM call mocked"]
+        SDC["disclosure_control_check.R<br/>small-cell check, not wired in"]
+    end
+    subgraph genomic["Genomic environment"]
+        BRG["genomic-bridge (R, plumber)<br/>linkage_manager.R + linkage_rules.R"]
+        VCF["vcf_slicer.sh (bcftools)"]
+    end
+    ING -.->|cohort CSV| BRG
+    BRG -.->|sample list file| VCF
+    GW["nginx gateway"] --> NLP & AUD & ING & BRG
+    UI["React dashboard<br/>hard-coded data"]
 ```
 
----
-
-## Architecture Principles
-
-### 1. Microservices Design
-
-Each service is:
-- **Independently deployable** - Can be updated without affecting others
-- **Single responsibility** - Does one thing well
-- **Technology agnostic** - Uses the best tool for the job (Python for ML, R for statistics)
-- **Containerized** - Runs in isolated Docker containers
-
-### 2. Zero-Trust Security
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     ZERO-TRUST MODEL                             │
-│                                                                  │
-│   ┌─────────┐    mTLS    ┌─────────┐    mTLS    ┌─────────┐    │
-│   │Service A│◄──────────►│ Gateway │◄──────────►│Service B│    │
-│   └─────────┘            └─────────┘            └─────────┘    │
-│        │                      │                      │          │
-│        ▼                      ▼                      ▼          │
-│   ┌─────────────────────────────────────────────────────────┐  │
-│   │                  IDENTITY PROVIDER (Keycloak)            │  │
-│   │   • JWT Tokens (15-min expiry)                          │  │
-│   │   • Role-Based Access Control                            │  │
-│   │   • Audit Logging                                        │  │
-│   └─────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### 3. Data Minimization
-
-Clinical data **never leaves** the TRE. Only de-identified tokens cross the air gap:
-
-```
-Clinical TRE                          HPC Environment
-┌──────────────┐                      ┌──────────────┐
-│ Patient: P001│                      │              │
-│ NHS: 123456  │  ──► Hash ──►       │ Token: a1b2c │
-│ DOB: 1980-01 │                      │              │
-└──────────────┘                      └──────────────┘
-```
-
-### 4. Event-Driven Architecture
-
-Services communicate asynchronously via Redis message queues:
-
-```
-┌────────────┐    ┌───────────┐    ┌────────────┐
-│  Clinical  │───►│   Redis   │───►│  Phenotype │
-│  Ingestion │    │   Queue   │    │    NLP     │
-└────────────┘    └───────────┘    └────────────┘
-                        │
-                        ▼
-               ┌────────────────┐
-               │  Audit Logger  │
-               └────────────────┘
-```
-
----
-
-## System Components
-
-### 1. Phenotype NLP Service
-
-**Purpose:** Extract clinical phenotypes from unstructured text
-
-**Technology Stack:**
-- Python 3.11
-- FastAPI (async web framework)
-- SciSpacy (biomedical NLP)
-- Pydantic (data validation)
-
-**Key Features:**
-- Context-aware negation detection (ConText algorithm)
-- Batch processing with `nlp.pipe()`
-- GPU acceleration support
-
-**Architecture:**
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    PHENOTYPE NLP SERVICE                     │
-│                                                              │
-│   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐ │
-│   │   FastAPI    │───►│   VTE        │───►│   Response   │ │
-│   │   Router     │    │  Extractor   │    │   Model      │ │
-│   └──────────────┘    └──────────────┘    └──────────────┘ │
-│          │                   │                              │
-│          ▼                   ▼                              │
-│   ┌──────────────┐    ┌──────────────┐                     │
-│   │   Pydantic   │    │   SciSpacy   │                     │
-│   │  Validation  │    │   Pipeline   │                     │
-│   └──────────────┘    └──────────────┘                     │
-│                              │                              │
-│                              ▼                              │
-│                       ┌──────────────┐                     │
-│                       │  Negation    │                     │
-│                       │  Detector    │                     │
-│                       └──────────────┘                     │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-### 2. Visual Governance Auditor
-
-**Purpose:** AI-powered visual inspection of redacted documents for PII leakage
-
-**Technology Stack:**
-- Python 3.11
-- FastAPI
-- PyTorch
-- Vision-Language Models (LLaVA/GPT-4V)
-
-**Key Features:**
-- Detects transparent redaction boxes
-- Finds PII in embedded images/charts
-- Catches pixelation errors
-
-**Architecture:**
-```
-┌─────────────────────────────────────────────────────────────┐
-│                  VISUAL GOVERNANCE AUDITOR                   │
-│                                                              │
-│   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐ │
-│   │   Document   │───►│   Image      │───►│   VLM        │ │
-│   │   Upload     │    │  Processor   │    │  Inference   │ │
-│   └──────────────┘    └──────────────┘    └──────────────┘ │
-│                              │                   │          │
-│                              ▼                   ▼          │
-│                       ┌──────────────┐   ┌──────────────┐  │
-│                       │   Page       │   │   Privacy    │  │
-│                       │  Splitter    │   │   Prompt     │  │
-│                       └──────────────┘   └──────────────┘  │
-│                                                 │          │
-│                                                 ▼          │
-│                                          ┌──────────────┐  │
-│                                          │   Risk       │  │
-│                                          │  Assessment  │  │
-│                                          └──────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**VLM Prompt Engineering:**
-```yaml
-system_prompt: |
-  You are a Privacy Compliance Officer. Analyze this document 
-  image for any visible Personally Identifiable Information (PII).
-  
-  Look specifically for:
-  1. Patient Names (e.g., "John Doe")
-  2. Dates of Birth
-  3. NHS Numbers or Hospital IDs
-  4. Unredacted faces
-  5. Text visible under black redaction boxes
-  
-  Return JSON: {"is_safe": bool, "risk_score": 0.0-1.0, "findings": [...]}
-```
-
----
-
-### 3. Clinical Ingestion Service
-
-**Purpose:** ETL pipeline for NHS Trust data harmonization
-
-**Technology Stack:**
-- R 4.2+
-- Plumber (REST API)
-- Tidyverse (data manipulation)
-- Checkmate (input validation)
-
-**Key Features:**
-- Multi-format ingestion (Excel, CSV, XML)
-- OMOP CDM mapping
-- Drug name standardization
-
-**Architecture:**
-```
-┌─────────────────────────────────────────────────────────────┐
-│                CLINICAL INGESTION SERVICE                    │
-│                                                              │
-│   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐ │
-│   │   Raw Data   │───►│   Schema     │───►│   Drug       │ │
-│   │   Reader     │    │  Normalizer  │    │   Mapper     │ │
-│   └──────────────┘    └──────────────┘    └──────────────┘ │
-│          │                   │                   │          │
-│          ▼                   ▼                   ▼          │
-│   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐ │
-│   │   readxl     │    │  Trust-      │    │   OMOP       │ │
-│   │   readr      │    │  Specific    │    │   Concept    │ │
-│   │              │    │  Mappings    │    │   Table      │ │
-│   └──────────────┘    └──────────────┘    └──────────────┘ │
-│                                                              │
-│                       ┌──────────────┐                      │
-│                       │   Quality    │                      │
-│                       │   Control    │                      │
-│                       └──────────────┘                      │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Drug Mapping Example:**
-```r
-drug_name_std = case_when(
-  str_detect(drug, regex("inflix|remicade", ignore_case = TRUE)) ~ "Infliximab",
-  str_detect(drug, regex("adali|humira", ignore_case = TRUE)) ~ "Adalimumab",
-  str_detect(drug, regex("vedo|entyvio", ignore_case = TRUE)) ~ "Vedolizumab",
-  TRUE ~ "Other"
-)
-```
-
----
-
-### 4. Genomic Bridge Service
-
-**Purpose:** Secure linkage between clinical and genomic data
-
-**Technology Stack:**
-- R 4.2+
-- data.table (high-performance data manipulation)
-- Bioconductor
-
-**Key Features:**
-- Master Patient Index (MPI) management
-- Zero-trust token exchange
-- Genomic file validation
-
-**Architecture:**
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   GENOMIC BRIDGE SERVICE                     │
-│                                                              │
-│   ┌──────────────┐         ┌──────────────┐                 │
-│   │   Clinical   │         │   Genomic    │                 │
-│   │   Cohort     │         │   Manifest   │                 │
-│   └──────────────┘         └──────────────┘                 │
-│          │                        │                          │
-│          ▼                        ▼                          │
-│   ┌──────────────────────────────────────────────────────┐  │
-│   │              MASTER PATIENT INDEX (MPI)               │  │
-│   │                                                       │  │
-│   │   patient_id  │  sanger_sample_id  │  linkage_date   │  │
-│   │   ──────────  │  ─────────────────  │  ────────────   │  │
-│   │   P001        │  SANG_ABC123        │  2024-01-15     │  │
-│   │   P002        │  SANG_DEF456        │  2024-01-15     │  │
-│   └──────────────────────────────────────────────────────┘  │
-│          │                                                   │
-│          ▼                                                   │
-│   ┌──────────────────────────────────────────────────────┐  │
-│   │                    EXPORT MANIFEST                    │  │
-│   │   (De-identified tokens only cross the air gap)       │  │
-│   └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Data Flow
-
-### End-to-End Processing Pipeline
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        DATA PROCESSING PIPELINE                              │
-│                                                                              │
-│  1. INGEST           2. HARMONIZE         3. ENRICH            4. LINK      │
-│  ┌─────────┐        ┌─────────┐         ┌─────────┐         ┌─────────┐    │
-│  │  Trust  │───────►│  OMOP   │────────►│   NLP   │────────►│ Genomic │    │
-│  │  Data   │        │   CDM   │         │ Extract │         │  Bridge │    │
-│  └─────────┘        └─────────┘         └─────────┘         └─────────┘    │
-│      │                   │                   │                   │          │
-│      ▼                   ▼                   ▼                   ▼          │
-│  Raw Excel          Standardized         Phenotype           Linked        │
-│  CSV files          Schema               Flags               Manifest      │
-│                                                                              │
-│  5. AUDIT           6. EXPORT                                               │
-│  ┌─────────┐        ┌─────────┐                                            │
-│  │ Visual  │───────►│ Airlock │                                            │
-│  │ Auditor │        │ Release │                                            │
-│  └─────────┘        └─────────┘                                            │
-│      │                   │                                                  │
-│      ▼                   ▼                                                  │
-│  PII Risk            Approved                                               │
-│  Assessment          Dataset                                                │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Security Architecture
-
-### Network Segmentation
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         NETWORK ARCHITECTURE                                 │
-│                                                                              │
-│   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │                        PUBLIC ZONE                                   │   │
-│   │   ┌─────────────┐                                                   │   │
-│   │   │     WAF     │  (Web Application Firewall)                       │   │
-│   │   └─────────────┘                                                   │   │
-│   └─────────────────────────────────────────────────────────────────────┘   │
-│                                    │                                         │
-│                                    ▼                                         │
-│   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │                        DMZ (Port 443 only)                           │   │
-│   │   ┌─────────────┐    ┌─────────────┐                                │   │
-│   │   │   Nginx     │    │  Keycloak   │                                │   │
-│   │   │   Gateway   │    │   (Auth)    │                                │   │
-│   │   └─────────────┘    └─────────────┘                                │   │
-│   └─────────────────────────────────────────────────────────────────────┘   │
-│                                    │                                         │
-│                                    ▼                                         │
-│   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │                     APPLICATION ZONE                                 │   │
-│   │   ┌───────┐  ┌───────┐  ┌───────┐  ┌───────┐                       │   │
-│   │   │  NLP  │  │  ETL  │  │ Audit │  │Bridge │   (Internal only)     │   │
-│   │   └───────┘  └───────┘  └───────┘  └───────┘                       │   │
-│   └─────────────────────────────────────────────────────────────────────┘   │
-│                                    │                                         │
-│                                    ▼                                         │
-│   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │                        DATA ZONE                                     │   │
-│   │   ┌─────────────┐    ┌─────────────┐                                │   │
-│   │   │  PostgreSQL │    │   Audit     │   (No external access)        │   │
-│   │   │             │    │    Logs     │                                │   │
-│   │   └─────────────┘    └─────────────┘                                │   │
-│   └─────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Audit Trail
-
-Every data access is logged:
-
-```json
-{
-  "timestamp": "2024-01-15T10:30:00Z",
-  "event_type": "DATA_ACCESS",
-  "actor": {
-    "user_id": "researcher@nhs.uk",
-    "role": "researcher",
-    "ip_address": "10.0.1.100"
-  },
-  "resource": {
-    "type": "clinical_cohort",
-    "id": "IBD-2024-001",
-    "action": "READ"
-  },
-  "outcome": "SUCCESS",
-  "data_accessed": {
-    "patient_count": 500,
-    "fields": ["patient_id", "diagnosis_date", "drug_name"]
-  }
-}
-```
-
----
-
-## Deployment Architecture
-
-### Kubernetes Production Deployment
-
-```yaml
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      KUBERNETES CLUSTER                                      │
-│                                                                              │
-│   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  Namespace: gut-reaction                                             │   │
-│   │                                                                      │   │
-│   │   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐            │   │
-│   │   │   Ingress   │    │   Service   │    │   Service   │            │   │
-│   │   │  Controller │───►│   (NLP)     │    │  (Auditor)  │            │   │
-│   │   └─────────────┘    └─────────────┘    └─────────────┘            │   │
-│   │                            │                  │                     │   │
-│   │                            ▼                  ▼                     │   │
-│   │   ┌────────────────────────────────────────────────────────────┐   │   │
-│   │   │                    Deployment Pods                          │   │   │
-│   │   │                                                             │   │   │
-│   │   │   ┌─────┐ ┌─────┐ ┌─────┐    ┌─────┐ ┌─────┐              │   │   │
-│   │   │   │ NLP │ │ NLP │ │ NLP │    │Audit│ │Audit│   (HPA: 3-10)│   │   │
-│   │   │   │ Pod │ │ Pod │ │ Pod │    │ Pod │ │ Pod │              │   │   │
-│   │   │   └─────┘ └─────┘ └─────┘    └─────┘ └─────┘              │   │   │
-│   │   └────────────────────────────────────────────────────────────┘   │   │
-│   │                                                                      │   │
-│   │   ┌─────────────────────────────────────────────────────────────┐   │   │
-│   │   │  StatefulSet: PostgreSQL          PVC: 100Gi                 │   │   │
-│   │   └─────────────────────────────────────────────────────────────┘   │   │
-│   │                                                                      │   │
-│   └─────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Technology Decisions
-
-### Why FastAPI over Flask?
-
-| Factor | FastAPI | Flask |
-|--------|---------|-------|
-| Performance | Async/await, 2-3x faster | Synchronous |
-| Type Safety | Built-in Pydantic | Manual |
-| Documentation | Auto-generated OpenAPI | Manual |
-| Validation | Automatic | Manual |
-
-### Why R for ETL over Python?
-
-| Factor | R | Python |
-|--------|---|--------|
-| NHS Analyst Familiarity | High | Medium |
-| Tidyverse ETL | Excellent | Good (pandas) |
-| Statistical Functions | Native | NumPy/SciPy |
-| CRAN Packages | 20,000+ | pip comparable |
-
-### Why Vision-Language Models over OCR + Regex?
-
-| Factor | VLM | OCR + Regex |
-|--------|-----|-------------|
-| Transparent Redactions | ✅ Detects | ❌ Misses |
-| Context Understanding | ✅ "This looks like a name" | ❌ Pattern only |
-| Embedded Images | ✅ Analyzes | ❌ Cannot process |
-| False Positives | Lower | Higher |
-
----
-
-## Further Reading
-
-- [API Documentation](API.md)
-- [Deployment Guide](DEPLOYMENT.md)
-- [Security Policy](../SECURITY.md)
-- [Contributing Guide](../CONTRIBUTING.md)
+Dotted arrows are hand-offs by file. No service calls another over HTTP, and nothing reads from or
+writes to Postgres or Redis yet.
+
+## Components
+
+### phenotype-nlp
+
+- `vte_extractor.py`: `VTEExtractor` builds a spaCy `PhraseMatcher` over nine VTE terms, matched
+  on lower-cased tokens. A match is negated if a cue ("no", "not", "negative for", "free of",
+  "ruled out", "absence of", "no evidence of", "unlikely", "doubtful") appears as a whole word in
+  the six tokens before it. The document is `POSITIVE_VTE` if any match survives, `NEGATIVE_VTE`
+  if all were negated, and `NO_MENTION` otherwise.
+- Model loading tries `MODEL_PATH` (default `en_core_sci_md`, the SciSpacy model), then
+  `en_core_web_sm`, then a blank English tokenizer. The image installs `en_core_web_sm` only.
+  Only tokenisation is used, so the choice does not change matches.
+- `main.py`: FastAPI app with `/health`, `/extract/vte` and `/batch/process`. The batch endpoint
+  runs the extractor in a background task and logs counts per status; results are not stored.
+
+### governance-auditor
+
+- `visual_pii_auditor.py`: builds the audit prompt, calls the model and parses a JSON reply into an
+  `AuditResult`. `_encode_image` returns a placeholder string and `_call_vlm_api` returns one
+  canned reply, so **every document gets the same result**. `MOCKED = True` records this and is
+  reported by the API. If the reply cannot be parsed the result is unsafe with risk 1.0.
+- `main.py`: FastAPI app with `/health` and `/audit/document` (multipart upload). Uploads go to a
+  private temporary file named without the client's filename, and are deleted afterwards.
+- `disclosure_control_check.R`: flags values of a categorical column that appear fewer than
+  `threshold` (default 5) times. It checks one column at a time and is not called by any service.
+  The auditor image has no R runtime.
+
+### clinical-ingestion
+
+- `harmonizer_rules.R`: `standardise_drug()` maps generic and brand names for infliximab,
+  adalimumab, vedolizumab and ustekinumab by case-insensitive regex; `normalise_column_names()`;
+  and `VALID_TRUST_IDS`, the four accepted site codes.
+- `trust_data_harmonizer.R`: `process_trust_prescribing(file_path, trust_id)` reads an Excel file,
+  applies the rules, parses `rx_date` with several formats, keeps rows with a valid date and a
+  target drug, and warns with the number of rows dropped. The output is a flat table with
+  `trust_id, patient_id, drug_name_std, start_date, dose, frequency`. It is not OMOP CDM.
+- `start_api.R`: plumber routes `/health` and `POST /harmonize?input_file=...&trust_id=...`. The
+  file path is a path on the server; there is no upload.
+
+### genomic-bridge
+
+- `linkage_rules.R`: `link_cohort()` inner-joins the cohort to the bridge table on `patient_id`
+  and drops rows without a `sanger_sample_id`; `select_exportable()` keeps samples with
+  `qc_status == "PASS"`, `contamination_rate < 0.05` and a WES or SNP file.
+- `linkage_manager.R`: `link_clinical_to_genomic()` reads the three CSVs, checks required columns,
+  checks for CRAM and PLINK files under fixed `/mnt/hpc/data/...` paths, and applies the rules.
+- `start_linkage_service.R`: plumber routes `/health`, `/status/<patient_id>` (a mock that always
+  reports a link) and `POST /link-cohort` (fixed bridge and manifest paths).
+- `vcf_slicer.sh`: runs `bcftools view` for a sample list and region, removes the ID and QUAL
+  columns and the AF and AC INFO fields with `bcftools annotate`, then runs `bgzip` and `tabix`.
+  Not tested in this repository.
+
+The code expects the ID bridge to be produced and held by someone else. It does not generate,
+hash or encrypt identifiers.
+
+### Supporting pieces
+
+| Piece | Where | Notes |
+|---|---|---|
+| Gateway | `infrastructure/nginx/nginx.conf` | Routes `/extract/` and `/health` to phenotype-nlp, `/audit/` to the auditor, `/ingest/` and `/linkage/` to the R services (prefix stripped). No TLS, no rate limiting, no auth. |
+| Dashboard | `ui/` | React, Vite, Tailwind. Hard-coded illustrative numbers; three placeholder pages. Its `/api` proxy is not used by any page. |
+| Postgres, Redis | `docker-compose.yml` | Started, not used. |
+| Kubernetes | `infrastructure/k8s/base` | See [DEPLOYMENT.md](DEPLOYMENT.md). |
+| Terraform | `infrastructure/terraform/aws` | See [DEPLOYMENT.md](DEPLOYMENT.md). |
+
+## Ports
+
+| Container | Port inside | Published by `docker-compose.yml` | Published by `docker-compose.ci.yml` |
+|---|---|---|---|
+| phenotype-nlp | 8001 | no (reach it through the gateway) | 8001 |
+| governance-auditor | 8002 | no | 8002 |
+| clinical-ingestion | 8000 | no | not started |
+| genomic-bridge | 8000 | no | not started |
+| api-gateway | 80 | 8000 | not started |
+| dashboard | 3000 | 3000 | not started |
+| postgres | 5432 | no | no |
+| redis | 6379 | 6379 | not started |
+
+## Designed but not built
+
+Earlier versions of this page described these as if they existed. They do not:
+
+- authentication (Keycloak, JWT) and mutual TLS between services;
+- an immutable audit log, or any audit table in Postgres;
+- message queues between services;
+- a Slurm integration or any HPC job submission;
+- a real vision-language model backend;
+- OMOP CDM mapping;
+- Prometheus metrics endpoints and dashboards;
+- a Helm chart.

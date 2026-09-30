@@ -3,6 +3,10 @@ library(dplyr)
 library(tibble)
 library(checkmate)
 
+# The rules the service uses (linkage_manager.R sources the same file).
+# testthat runs this file with the tests/ directory as the working directory.
+source(file.path("..", "linkage_rules.R"))
+
 # ---------------------------------------------------------------------------
 # Test: Linkage join logic
 # ---------------------------------------------------------------------------
@@ -18,9 +22,7 @@ test_that("inner join correctly links clinical and bridge data", {
     sanger_sample_id = c("SANGER_001", "SANGER_002", "SANGER_004")
   )
 
-  linked <- clinical %>%
-    dplyr::inner_join(bridge, by = "patient_id") %>%
-    dplyr::filter(!is.na(sanger_sample_id))
+  linked <- link_cohort(clinical, bridge)
 
   # Only P001 and P002 should match
 
@@ -40,9 +42,7 @@ test_that("unmatched patients are dropped after linkage", {
     sanger_sample_id = c("SANGER_020")
   )
 
-  linked <- clinical %>%
-    dplyr::inner_join(bridge, by = "patient_id") %>%
-    dplyr::filter(!is.na(sanger_sample_id))
+  linked <- link_cohort(clinical, bridge)
 
   expect_equal(nrow(linked), 1)
   expect_equal(linked$patient_id, "P020")
@@ -61,12 +61,7 @@ test_that("QC filter removes failing samples", {
     has_snp           = c(FALSE, FALSE, FALSE, FALSE)
   )
 
-  valid <- samples %>%
-    dplyr::filter(
-      qc_status == "PASS" &
-      contamination_rate < 0.05 &
-      (has_wes | has_snp)
-    )
+  valid <- select_exportable(samples)
 
   # S1: PASS, low contam, has_wes  -> valid
   # S2: PASS, high contam          -> invalid
@@ -86,4 +81,21 @@ test_that("required columns are detected by checkmate", {
 
   df_bad <- tibble::tibble(id = "P1")
   expect_false(test_subset(c("patient_id", "recruitment_site"), names(df_bad)))
+})
+
+test_that("a missing sample ID in the bridge drops the patient", {
+  clinical <- tibble::tibble(patient_id = c("P1", "P2"), recruitment_site = c("A", "B"))
+  bridge <- tibble::tibble(patient_id = c("P1", "P2"), sanger_sample_id = c("S1", NA))
+  expect_equal(link_cohort(clinical, bridge)$patient_id, "P1")
+})
+
+test_that("the contamination threshold is strict", {
+  samples <- tibble::tibble(
+    sanger_sample_id   = c("S1", "S2"),
+    qc_status          = c("PASS", "PASS"),
+    contamination_rate = c(0.05, 0.0499),
+    has_wes            = c(TRUE, TRUE),
+    has_snp            = c(FALSE, FALSE)
+  )
+  expect_equal(select_exportable(samples)$sanger_sample_id, "S2")
 })

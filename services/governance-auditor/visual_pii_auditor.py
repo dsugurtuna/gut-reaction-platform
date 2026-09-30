@@ -1,11 +1,12 @@
-import os
+from __future__ import annotations
+
 import logging
-from typing import List, Dict, Optional
+import os
 from dataclasses import dataclass
 from enum import Enum
 
 
-# Mocking external VLM API client (e.g., OpenAI, HuggingFace)
+# Model identifiers the auditor is designed for. Neither is called: see VisualPIIAuditor.MOCKED.
 class VLMProvider(Enum):
     OPENAI_GPT4V = "gpt-4-vision-preview"
     LLAVA_NEXT = "llava-v1.6-34b"
@@ -15,35 +16,41 @@ class VLMProvider(Enum):
 class AuditResult:
     is_safe: bool
     risk_score: float
-    detected_pii: List[str]
+    detected_pii: list[str]
     reasoning: str
 
 
 class VisualPIIAuditor:
     """
-    Enterprise-grade Visual Governance Auditor.
+    Visual PII auditor: the design for a final visual check of redacted documents
+    by a vision-language model (VLM) before they leave a secure environment.
 
-    This system uses Vision-Language Models (VLMs) to perform a final "human-like"
-    visual inspection of redacted documents before they leave the secure environment.
-
-    It catches what regex misses:
+    The intended checks are ones that text-based rules miss:
     - Names written in margins.
     - Failed redaction boxes (transparent overlays).
     - PII in embedded screenshots or charts.
+
+    Reference implementation: the model call is mocked. ``_call_vlm_api`` returns
+    the same canned response for every input, and ``_encode_image`` does not read
+    the file. The prompt, the response parsing and the fail-closed behaviour are real.
     """
+
+    # There is no real VLM client yet, with or without an API key.
+    MOCKED = True
 
     def __init__(
         self,
         model: VLMProvider = VLMProvider.OPENAI_GPT4V,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
     ):
         self.model = model
         self.api_key = api_key or os.getenv("VLM_API_KEY")
         self.logger = logging.getLogger("VisualGovernance")
         self.logger.setLevel(logging.INFO)
 
-        if not self.api_key:
-            self.logger.warning("No API key found. Running in MOCK mode.")
+        self.logger.warning(
+            "VLM calls are mocked: every document gets the same canned response and the file is not read."
+        )
 
     def audit_document(self, image_path: str) -> AuditResult:
         """
@@ -58,7 +65,7 @@ class VisualPIIAuditor:
         # 2. Construct the Visual Prompt
         prompt = self._get_audit_prompt()
 
-        # 3. Call the VLM (Mocked for Shadow Repo)
+        # 3. Call the VLM (mocked, see MOCKED)
         response = self._call_vlm_api(encoded_image, prompt)
 
         # 4. Parse Response
@@ -87,7 +94,7 @@ class VisualPIIAuditor:
         - "reasoning": brief explanation
         """
 
-    def _call_vlm_api(self, image_data: str, prompt: str) -> Dict:
+    def _call_vlm_api(self, image_data: str, prompt: str) -> dict:
         """
         Simulates the API call to GPT-4V or LLaVA.
         """
@@ -114,7 +121,7 @@ class VisualPIIAuditor:
             ]
         }
 
-    def _parse_vlm_response(self, api_response: Dict) -> AuditResult:
+    def _parse_vlm_response(self, api_response: dict) -> AuditResult:
         import json
 
         try:
@@ -126,7 +133,8 @@ class VisualPIIAuditor:
                 detected_pii=data["detected_pii"],
                 reasoning=data["reasoning"],
             )
-        except Exception as e:
+        except (KeyError, IndexError, TypeError, ValueError) as e:
+            # Fail closed: a response we cannot read is treated as unsafe.
             self.logger.error(f"Failed to parse VLM response: {e}")
             return AuditResult(False, 1.0, ["Error"], "Parser Failure")
 
