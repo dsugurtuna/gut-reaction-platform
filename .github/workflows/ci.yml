@@ -118,8 +118,14 @@ jobs:
           use-public-rspm: true
 
       - name: Install R dependencies
+        # Binary packages from the Posit Public Package Manager configured by
+        # setup-r (use-public-rspm). Building from source failed on `fs`, which
+        # left testthat uninstalled; fail here if anything is missing.
         run: |
-          install.packages(c("testthat", "dplyr", "tibble", "stringr", "checkmate", "data.table"), repos = "https://cloud.r-project.org")
+          pkgs <- c("testthat", "dplyr", "tibble", "stringr", "checkmate", "data.table")
+          install.packages(pkgs)
+          missing <- setdiff(pkgs, rownames(installed.packages()))
+          if (length(missing) > 0) stop("Failed to install: ", paste(missing, collapse = ", "))
         shell: Rscript {0}
 
       - name: Run R tests
