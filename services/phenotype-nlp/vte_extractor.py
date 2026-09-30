@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 import spacy
@@ -28,6 +29,7 @@ NEGATION_TRIGGERS = [
     "unlikely",
     "doubtful",
 ]
+_NEGATION_PATTERN = re.compile(r"\b(?:" + "|".join(re.escape(t) for t in NEGATION_TRIGGERS) + r")\b")
 
 
 def load_pipeline(model_name: str) -> tuple[Language, str]:
@@ -52,8 +54,8 @@ class VTEExtractor:
 
     How it works:
     - A spaCy PhraseMatcher finds nine VTE terms (case-insensitive).
-    - A mention is treated as negated if a cue such as "no" or "ruled out" appears
-      in the six tokens before it (a simplified NegEx-style window).
+    - A mention is treated as negated if a cue such as "no" or "ruled out" appears,
+      as a whole word, in the six tokens before it (a simplified NegEx-style window).
     - The result is a document-level flag with the matched terms as evidence.
 
     It does not use a trained model for classification. Loading SciSpacy is optional
@@ -128,10 +130,14 @@ class VTEExtractor:
         return {"status": "NEGATIVE_VTE", "evidence": "Negated findings only", "terms": []}
 
     def _is_negated(self, span: Span, doc: Doc) -> bool:
-        """Return True if a negation cue appears in the six tokens before the span."""
+        """Return True if a negation cue appears as a whole word in the six tokens before the span.
+
+        Known limits: cues after the term ("PE unlikely") are missed, and the window
+        can cross sentence boundaries.
+        """
         window_start = max(0, span.start - 6)
         window_text = doc[window_start : span.start].text.lower()
-        return any(trigger in window_text for trigger in NEGATION_TRIGGERS)
+        return _NEGATION_PATTERN.search(window_text) is not None
 
 
 if __name__ == "__main__":

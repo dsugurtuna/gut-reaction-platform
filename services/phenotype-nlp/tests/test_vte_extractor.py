@@ -97,6 +97,29 @@ class TestNegation:
             span = doc[start:end]
             assert not extractor._is_negated(span, doc)
 
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Known pulmonary embolism, on anticoagulation.",  # "known" contains "no"
+            "Diagnosis: DVT of the left leg.",  # "diagnosis" contains "no"
+            "Normal liver. Acute DVT in the right calf.",  # "normal" contains "no"
+            "Nodular thickening with thrombus in the IVC.",  # "nodular" contains "no"
+        ],
+    )
+    def test_cue_inside_another_word_does_not_negate(self, extractor, text):
+        assert extractor.process_clinical_text(text)["status"] == "POSITIVE_VTE"
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "No evidence of DVT.",
+            "Findings are not consistent with pulmonary embolism.",
+            "Scan is negative for PE.",
+        ],
+    )
+    def test_whole_word_cues_still_negate(self, extractor, text):
+        assert extractor.process_clinical_text(text)["status"] == "NEGATIVE_VTE"
+
 
 class TestMatcherSetup:
     def test_terms_loaded(self, extractor):
