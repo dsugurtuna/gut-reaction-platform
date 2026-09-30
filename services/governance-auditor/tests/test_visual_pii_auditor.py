@@ -1,9 +1,10 @@
 """Tests for VisualPIIAuditor governance-auditor service."""
 
 import json
+
 import pytest
 
-from visual_pii_auditor import VisualPIIAuditor, AuditResult, VLMProvider
+from visual_pii_auditor import AuditResult, VisualPIIAuditor, VLMProvider
 
 
 @pytest.fixture
