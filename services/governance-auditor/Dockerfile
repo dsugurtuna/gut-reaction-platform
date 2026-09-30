@@ -2,13 +2,8 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install system dependencies for Vision libraries
-RUN apt-get update && apt-get install -y \
-    libgl1 \
-    libglib2.0-0 \
-    poppler-utils \
-    tesseract-ocr \
-    && rm -rf /var/lib/apt/lists/*
+# No system packages or model runtime yet: the VLM call is mocked (see visual_pii_auditor.py).
+# A real backend would add an HTTP client or a local model runtime here.
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
